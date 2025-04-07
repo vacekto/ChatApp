@@ -4,5 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-image = "0.25.6"
 uuid = { version = "1.4", features = ["v4"] }
+bincode = "1.3.3"
+serde = { version = "1.0.219", features = ["derive"] }
+tokio = { version = "1.44.2", features = ["full"] }
