@@ -1,7 +1,5 @@
 use std::env;
 
-pub const BUFF_LENGTH: usize = 1024;
-
 pub fn get_addr(default_hostname: &str, default_port: &str) -> String {
     let mut args = env::args();
 
@@ -16,4 +14,10 @@ pub fn get_addr(default_hostname: &str, default_port: &str) -> String {
     };
 
     hostname + ":" + &port
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct TextMessage {
+    pub content: String,
+    pub sender: String,
 }

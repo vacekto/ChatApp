@@ -1,79 +1,66 @@
-use chat_app::shared_lib::{get_addr, BUFF_LENGTH};
-use serde::{Deserialize, Serialize};
-use std::time::{SystemTime, UNIX_EPOCH};
-use std::{
-    error::Error,
-    fs::File,
-    io::{stdin, Read, Write},
-    net::TcpStream,
-    path::Path,
-    sync::mpsc::{self, Sender},
-    thread,
-    time::Duration,
+use chat_app::shared_lib::{get_addr, TextMessage};
+use futures::{SinkExt, StreamExt};
+use std::error::Error;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::sync::mpsc::{self, Sender}; // <- this is key
+use tokio::{
+    io::stdin,
+    net::{
+        tcp::{OwnedReadHalf, OwnedWriteHalf},
+        TcpStream,
+    },
+    task,
 };
-use uuid::Uuid;
-
-#[derive(Serialize, Deserialize, Debug)]
-struct FileMetadata {
-    filename: String,
-    file_length: u64,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-enum MsgMetadata {
-    File(FileMetadata),
-    Text,
-}
-
-use tokio::{sync::broadcast, task};
+use tokio_util::{
+    bytes::Bytes,
+    codec::{FramedRead, FramedWrite, LengthDelimitedCodec},
+};
 
 const DEFUALT_HOSTNAME: &str = "localhost";
 const DEFUALT_PORT: &str = "11111";
 
-fn main() -> Result<(), Box<dyn Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
     let addr = get_addr(DEFUALT_HOSTNAME, DEFUALT_PORT);
 
-    let in_tcp = loop {
+    let tcp = loop {
         println!("attempting to establish connection..");
-        match TcpStream::connect(&addr) {
+        match TcpStream::connect(&addr).await {
             Ok(s) => {
                 println!("connection established with: {}", addr);
                 break s;
             }
             Err(e) => {
                 println!("connection error: {}", e);
-                thread::sleep(Duration::from_secs(2));
+                // thread::sleep(Duration::from_secs(2));
             }
         }
     };
 
-    let (in_tx, rx) = mpsc::channel();
+    let (in_tcp, out_tcp) = tcp.into_split();
+    let (in_tx, mut rx) = mpsc::channel::<()>(20);
     let out_tx = in_tx.clone();
-    let out_tcp = in_tcp.try_clone().unwrap();
-    let in_th = thread::spawn(|| listen_for_server(in_tcp, in_tx));
-    let out_th = thread::spawn(move || handle_stdin(out_tcp, out_tx));
 
-    rx.recv().unwrap();
+    task::spawn(listen_for_server(in_tcp, in_tx));
+    task::spawn(write_to_server(out_tcp, out_tx));
 
-    out_th.join().unwrap();
-    in_th.join().unwrap();
+    rx.recv().await.unwrap();
 
     println!("finished");
 
     Ok(())
 }
 
-fn handle_stdin(mut tcp: TcpStream, tx: Sender<()>) {
+async fn write_to_server(mut tcp: OwnedWriteHalf, tx: Sender<()>) {
     let mut buff = String::new();
-    let s_in = stdin();
+    let mut s_in = BufReader::new(stdin());
 
-    while let Ok(_) = s_in.read_line(&mut buff) {
+    while let Ok(_) = s_in.read_line(&mut buff).await {
         let mut itr = buff.split_whitespace();
 
         match (itr.next(), itr.next()) {
             (Some(cmd), None) if cmd == ".quit" => {
-                tx.send(()).unwrap();
-                return;
+                break;
             }
             (Some(cmd), Some(_)) if cmd == ".file" && itr.count() != 0 => {
                 println!("too many arguments, expected format <>.file> <command>")
@@ -83,86 +70,41 @@ fn handle_stdin(mut tcp: TcpStream, tx: Sender<()>) {
             }
 
             _ => {
-                send_text_msg(&mut tcp, buff.clone());
+                send_text_msg(&mut tcp, &mut buff).await;
             }
         }
 
-        tcp.flush().unwrap();
         buff.clear();
     }
+    tx.send(()).await.unwrap();
 }
 
-fn listen_for_server(mut tcp: TcpStream, tx: Sender<()>) {
-    let mut buff: [u8; BUFF_LENGTH] = [0; BUFF_LENGTH];
+async fn listen_for_server(mut tcp: OwnedReadHalf, tx: Sender<()>) {
+    let mut framed = FramedRead::new(&mut tcp, LengthDelimitedCodec::new());
 
     loop {
-        match tcp.read(&mut buff) {
-            Ok(0) => {
-                println!("server dropped");
-                tx.send(()).unwrap();
-                return;
-            }
-            Ok(n) => {
-                // let metadata = bincode::deserialize::<MsgMetadata>(&buff).unwrap();
-                let msg = String::from_utf8_lossy(&buff[0..n]);
-                println!("{}", msg);
-                // println!("{:?}", metadata);
-                // println!("{:?}", buff);
-            }
-
-            Err(err) => {
-                println!("An error occured: {}. terminating the connection", err);
-                tx.send(()).unwrap();
-                return;
-            }
+        if let Some(frame) = framed.next().await {
+            let bytes = frame.unwrap();
+            let msg: TextMessage = bincode::deserialize(&bytes).unwrap();
+            println!("{:?}", msg);
+        } else {
+            println!("Connection closed");
+            break;
         }
     }
+    tx.send(()).await.unwrap();
 }
 
-fn send_file(tcp: &mut TcpStream, path: &str) {
+fn send_file(_: &mut OwnedWriteHalf, _: &str) {
     unimplemented!();
-
-    // let path = Path::new(path);
-    // let file = File::open(path).unwrap();
-    // let filename = path.file_name().unwrap().to_str().unwrap().to_string();
-    // let size = file.metadata().unwrap().len();
-
-    // let metadata = MsgMetadata::File(FileMetadata {
-    //     file_length: size,
-    //     filename,
-    // });
-
-    // println!("{}", size);
-    // println!("{:#?}", file.metadata().unwrap());
-
-    // let bin = bincode::serialize(&metadata).unwrap();
-
-    // tcp.write_all(&bin).unwrap();
 }
 
-fn send_text_msg(tcp: &mut TcpStream, msg: String) {
-    // let mut buff: [u8; BUFF_LENGTH] = [0; BUFF_LENGTH];
-
-    // let id = Uuid::new_v4();
-
-    // let bin = bincode::serialize(&id).unwrap();
-    // let ab = id.as_bytes();
-
-    // let metadata = MsgMetadata::Text;
-
-    // let bin = bincode::serialize(&metadata).unwrap();
-    // tcp.write(&bin).unwrap();
-
-    match tcp.write(msg.as_bytes()) {
-        Ok(0) => {
-            println!("server dropped");
-            // tx.send(()).unwrap();
-        }
-        Ok(_) => {}
-        Err(err) => {
-            println!("server error occured: {:?}", err);
-            // tx.send(()).unwrap();
-            // break;
-        }
-    }
+async fn send_text_msg(tcp: &mut OwnedWriteHalf, msg: &mut String) {
+    let msg = TextMessage {
+        sender: String::from("cosikdosi"),
+        content: msg.clone(),
+    };
+    let mut framed = FramedWrite::new(tcp, LengthDelimitedCodec::new());
+    let s = bincode::serialize(&msg).unwrap();
+    framed.send(Bytes::from(s)).await.unwrap();
 }
