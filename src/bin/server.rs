@@ -1,5 +1,11 @@
-use chat_app::shared_lib::{get_addr, TextMessage};
+use std::{error::Error, fmt::Debug};
+
+use chat_app::{
+    server_lib::log,
+    shared_lib::{get_addr, TextMessage},
+};
 use futures::{SinkExt, StreamExt};
+use thiserror::Error;
 use tokio::{
     net::{TcpListener, TcpStream},
     select,
@@ -14,21 +20,33 @@ use tokio_util::{
 const DEFUALT_HOSTNAME: &str = "localhost";
 const DEFUALT_PORT: &str = "11111";
 
+#[derive(Error, Debug)]
+enum DataProcessingError {
+    #[error("Failed read/write framed message vie TCP stream")]
+    FramedTextMessage(std::io::Error),
+    #[error("bincoud")]
+    Bincode(bincode::ErrorKind),
+}
+
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn Error>> {
     let addr = get_addr(DEFUALT_HOSTNAME, DEFUALT_PORT);
 
     let listener = TcpListener::bind(&addr).await.unwrap();
     println!("listening on: {}", addr);
 
-    let (tx, _) = broadcast::channel::<TextMessage>(20);
+    let (tx, _) = broadcast::channel::<TextMessage>(30);
 
     loop {
-        let (tcp, _) = listener.accept().await.unwrap();
-        let tx = tx.clone();
-        let rx = tx.subscribe();
+        match listener.accept().await {
+            Ok((tcp, _)) => {
+                let tx = tx.clone();
+                let rx = tx.subscribe();
 
-        task::spawn(handle_connection(tcp, tx, rx));
+                task::spawn(handle_connection(tcp, tx, rx));
+            }
+            Err(err) => log(Box::new(err), None),
+        }
     }
 }
 
@@ -43,21 +61,51 @@ async fn handle_connection(
         select! {
             result = framed.next() =>{
                 if let Some(frame) = result {
-                    let bytes = frame.unwrap();
-                    let msg: TextMessage = bincode::deserialize(&bytes).unwrap();
+                    let bytes = match frame {
+                        Ok(b) => b,
+                        Err(er) => {
+                            log(Box::new(DataProcessingError::FramedTextMessage(er)), None);
+                            continue;
+                        }
+                    };
+                    let msg: TextMessage = match bincode::deserialize(&bytes) {
+                        Ok(msg) => msg,
+                        Err(err) => {
+                            log(Box::new(DataProcessingError::Bincode(*err)), None);
+                            continue;
+                        }
+                    };
                     println!("{:?}", msg);
-                    tx.send(msg).unwrap();
+                    match tx.send(msg) {
+                        Ok(_) => {}
+                        Err(_) => {
+                            todo!("no one listening, buffer messages to resend on client reconnect")
+                        }
+                    };
                 }
             }
 
             result = rx.recv() => {
                 match result {
                     Ok(msg) => {
-                        let s = bincode::serialize(&msg).unwrap();
-                        framed.send(Bytes::from(s)).await.unwrap();
+                        let s = match bincode::serialize(&msg) {
+                            Ok(msg) => msg,
+                            Err(err) => {
+                                log(Box::new(DataProcessingError::Bincode(*err)), None);
+                                continue;
+                            }
+                        };
+                        match framed.send(Bytes::from(s)).await {
+                            Ok(b) => b,
+                            Err(er) => {
+                                log(Box::new(DataProcessingError::FramedTextMessage(er)), None);
+                                continue;
+                            }
+                        };
                     }
                     Err(broadcast::error::RecvError::Lagged(n)) => {
                         println!("Missed {} messages", n);
+                        todo!("figure out what to do with missed messages from broadcast channel");
                     }
                     Err(_) => break,
                 }
