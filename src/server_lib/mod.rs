@@ -1,4 +1,4 @@
-pub fn log(err: Box<dyn std::error::Error>, msg: Option<&str>) {
+pub fn log(err: anyhow::Error, msg: Option<&str>) {
     println!(
         "an errrrrr occurrrrrrrrred: {}, msg: {}",
         err,
