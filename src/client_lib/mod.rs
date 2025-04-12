@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct AppState {
-    id: Uuid,
+    pub id: Uuid,
 }
 
 static GLOBAL: OnceCell<Mutex<AppState>> = OnceCell::new();
@@ -16,7 +16,11 @@ pub fn init_global_state(id: Uuid) {
 }
 
 pub async fn get_global_state() -> tokio::sync::MutexGuard<'static, AppState> {
-    GLOBAL.get().expect("Global not initialized").lock().await
+    GLOBAL
+        .get()
+        .expect("Global state not initialized")
+        .lock()
+        .await
 }
 
 pub struct Global;

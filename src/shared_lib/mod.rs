@@ -1,5 +1,8 @@
 use std::env;
 
+use bytes::Bytes;
+use serde::{Deserialize, Serialize};
+use tokio::sync::{broadcast, mpsc};
 use uuid::Uuid;
 
 pub fn get_addr(default_hostname: &str, default_port: &str) -> String {
@@ -18,29 +21,50 @@ pub fn get_addr(default_hostname: &str, default_port: &str) -> String {
     hostname + ":" + &port
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-pub struct TextMessage(pub String);
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-pub struct TextMetadata {
-    pub sender: String,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-pub struct FileMetadata {
-    pub sender: String,
-    pub size: u32,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-pub struct MsgMetadata {
-    // Text(TextMetadata),
-    // File(FileMetadata),
-    pub sender: String,
-    pub size: usize,
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct InitClientData {
     pub id: Uuid,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct User {
+    // username: String,
+    pub id: Uuid,
+}
+
+#[derive(Serialize, Deserialize)]
+pub enum Channel {
+    Room(Uuid),
+    Direct(Uuid),
+}
+
+pub struct DirectChannel {
+    pub tx: mpsc::Sender<Bytes>,
+    pub rx: mpsc::Receiver<Bytes>,
+}
+
+pub struct RoomChannel {
+    pub tx: broadcast::Sender<Bytes>,
+    pub rx: broadcast::Receiver<Bytes>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct TextMessage {
+    pub text: String,
+    pub from: User,
+    pub to: Channel,
+}
+#[derive(Serialize, Deserialize)]
+pub struct Chunk {
+    from: User,
+    #[serde(with = "serde_bytes")]
+    data: [u8; 8192],
+    to: Uuid,
+    is_last: bool,
+}
+
+#[derive(Deserialize, Serialize)]
+pub enum MessageToServer {
+    Text(TextMessage),
+    File(Chunk),
 }

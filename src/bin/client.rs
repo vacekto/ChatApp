@@ -1,10 +1,10 @@
 use anyhow::{anyhow, bail, Context, Result};
 use chat_app::{
-    client_lib::init_global_state,
-    shared_lib::{get_addr, InitClientData, MsgMetadata, TextMessage},
+    client_lib::{get_global_state, init_global_state},
+    shared_lib::{get_addr, Channel, InitClientData, MessageToServer, TextMessage, User},
 };
 use futures::{SinkExt, StreamExt};
-use std::{fs::File, io::Read, thread, time::Duration};
+use std::{fs::File, io::Read, str::FromStr, thread, time::Duration};
 use tokio::{
     io::{stdin, AsyncBufReadExt, BufReader},
     net::{
@@ -15,9 +15,10 @@ use tokio::{
     task,
 };
 use tokio_util::{
-    bytes::{Bytes, BytesMut},
+    bytes::Bytes,
     codec::{Framed, FramedRead, FramedWrite, LengthDelimitedCodec},
 };
+use uuid::Uuid;
 
 const DEFUALT_HOSTNAME: &str = "localhost";
 const DEFUALT_PORT: &str = "11111";
@@ -91,9 +92,17 @@ async fn listen_for_server(mut tcp: OwnedReadHalf, tx: Sender<()>) -> Result<()>
     loop {
         if let Some(frame) = framed.next().await {
             let bytes = frame.context("failed reading framed msg from server")?;
-            let msg: TextMessage =
+
+            let msg: MessageToServer =
                 bincode::deserialize(&bytes).context("failed bincode reading from server")?;
-            println!("{:?}", msg);
+            match msg {
+                MessageToServer::File(_) => {
+                    println!("file  chunk arrived");
+                }
+                MessageToServer::Text(msg) => {
+                    println!("New message from{:?}:  \n {}", msg.from.id, msg.text);
+                }
+            }
         } else {
             tx.send(()).await.unwrap();
             return Err(anyhow!("Server dropped"));
@@ -120,39 +129,30 @@ async fn send_file(tcp: &mut OwnedWriteHalf, path: &str) -> Result<()> {
     Ok(())
 }
 
-async fn read_file(tcp: &mut OwnedReadHalf) {
-    // let mut file = File::create(save_as).await?;
-    let mut framed_tcp = FramedRead::new(tcp, LengthDelimitedCodec::new());
+// async fn read_file(tcp: &mut OwnedReadHalf) {
+//     // let mut file = File::create(save_as).await?;
+//     let mut framed_tcp = FramedRead::new(tcp, LengthDelimitedCodec::new());
 
-    while let Some(chunk_result) = framed_tcp.next().await {
-        let chunk = chunk_result;
-        // file.write_all(&chunk).await?;
-    }
-}
+//     while let Some(chunk_result) = framed_tcp.next().await {
+//         let chunk = chunk_result;
+//         // file.write_all(&chunk).await?;
+//     }
+// }
 
-fn send_whole_data(tcp: &mut OwnedWriteHalf) {}
-
-fn read_data(bytes: BytesMut) {
-    let mut meta_data: MsgMetadata;
-    // if let Ok(meta) = bincode::deserialize(&bytes).context("failed bincode reading from server")?;
-}
-
-async fn send_text_msg(tcp: &mut OwnedWriteHalf, msg: &mut String) -> Result<()> {
+async fn send_text_msg(tcp: &mut OwnedWriteHalf, text: &mut String) -> Result<()> {
     let mut framed_write_tcp = FramedWrite::new(tcp, LengthDelimitedCodec::new());
+    let state = get_global_state().await;
+    let public_room_id = Uuid::from_str("7e40f106-3e7d-498a-94cc-5fa7f62cfce6").unwrap();
 
-    let meta = MsgMetadata {
-        sender: String::from("cosikdosi"),
-        size: msg.len(),
+    let text_msg = TextMessage {
+        text: text.clone(),
+        from: User { id: state.id },
+        to: Channel::Room(public_room_id),
     };
-    let data = TextMessage(msg.clone());
 
-    let serialized_meta = bincode::serialize(&meta).context("failed bincode writing to server")?;
-    let serialized_data = bincode::serialize(&data).context("failed bincode writing to server")?;
-
-    framed_write_tcp
-        .send(Bytes::from(serialized_meta))
-        .await
-        .context("failed to TCP send msg to server")?;
+    let server_msg = MessageToServer::Text(text_msg);
+    let serialized_data =
+        bincode::serialize(&server_msg).context("failed bincode writing to server")?;
 
     framed_write_tcp
         .send(Bytes::from(serialized_data))
@@ -166,7 +166,7 @@ async fn init_app_state(tcp: &mut TcpStream) -> Result<()> {
     let bytes = match framed_tcp.next().await {
         Some(b) => b.context("faild to load init data from server")?,
         None => {
-            bail!("lets bail baby!")
+            bail!("lets bail!")
         }
     };
     let init_data: InitClientData =
