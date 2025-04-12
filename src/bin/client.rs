@@ -1,10 +1,13 @@
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, Context, Result};
 use chat_app::{
-    client_lib::{get_global_state, init_global_state},
-    shared_lib::{get_addr, Channel, InitClientData, MessageToServer, TextMessage, User},
+    client_lib::util_functions::{
+        handle_file_chunk, handle_file_metadata, handle_text_message, init_app_state, send_file,
+        send_text_msg,
+    },
+    shared_lib::{types::ServerMessage, util_functions::get_addr},
 };
-use futures::{SinkExt, StreamExt};
-use std::{fs::File, io::Read, str::FromStr, thread, time::Duration};
+use futures::StreamExt;
+use std::{thread, time::Duration};
 use tokio::{
     io::{stdin, AsyncBufReadExt, BufReader},
     net::{
@@ -14,18 +17,11 @@ use tokio::{
     sync::mpsc::{self, Sender},
     task,
 };
-use tokio_util::{
-    bytes::Bytes,
-    codec::{Framed, FramedRead, FramedWrite, LengthDelimitedCodec},
-};
-use uuid::Uuid;
-
-const DEFUALT_HOSTNAME: &str = "localhost";
-const DEFUALT_PORT: &str = "11111";
+use tokio_util::codec::{FramedRead, LengthDelimitedCodec};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let addr = get_addr(DEFUALT_HOSTNAME, DEFUALT_PORT);
+    let addr = get_addr("localhost", "11111");
 
     let mut tcp = loop {
         println!("attempting to establish connection..");
@@ -93,85 +89,17 @@ async fn listen_for_server(mut tcp: OwnedReadHalf, tx: Sender<()>) -> Result<()>
         if let Some(frame) = framed.next().await {
             let bytes = frame.context("failed reading framed msg from server")?;
 
-            let msg: MessageToServer =
+            let msg: ServerMessage =
                 bincode::deserialize(&bytes).context("failed bincode reading from server")?;
+
             match msg {
-                MessageToServer::File(_) => {
-                    println!("file  chunk arrived");
-                }
-                MessageToServer::Text(msg) => {
-                    println!("New message from{:?}:  \n {}", msg.from.id, msg.text);
-                }
+                ServerMessage::File(chunk) => handle_file_chunk(chunk).await?,
+                ServerMessage::Text(msg) => handle_text_message(msg).await?,
+                ServerMessage::FileMetadata(meta) => handle_file_metadata(meta).await?,
             }
         } else {
             tx.send(()).await.unwrap();
             return Err(anyhow!("Server dropped"));
         }
     }
-}
-
-async fn send_file(tcp: &mut OwnedWriteHalf, path: &str) -> Result<()> {
-    let mut file = File::open(path)?;
-
-    let mut buffer = [0u8; 8192];
-    let mut framed_tcp = FramedWrite::new(tcp, LengthDelimitedCodec::new());
-
-    loop {
-        let n = file.read(&mut buffer)?;
-        if n == 0 {
-            break;
-        }
-        framed_tcp
-            .send(Bytes::copy_from_slice(&buffer[..n]))
-            .await?;
-    }
-
-    Ok(())
-}
-
-// async fn read_file(tcp: &mut OwnedReadHalf) {
-//     // let mut file = File::create(save_as).await?;
-//     let mut framed_tcp = FramedRead::new(tcp, LengthDelimitedCodec::new());
-
-//     while let Some(chunk_result) = framed_tcp.next().await {
-//         let chunk = chunk_result;
-//         // file.write_all(&chunk).await?;
-//     }
-// }
-
-async fn send_text_msg(tcp: &mut OwnedWriteHalf, text: &mut String) -> Result<()> {
-    let mut framed_write_tcp = FramedWrite::new(tcp, LengthDelimitedCodec::new());
-    let state = get_global_state().await;
-    let public_room_id = Uuid::from_str("7e40f106-3e7d-498a-94cc-5fa7f62cfce6").unwrap();
-
-    let text_msg = TextMessage {
-        text: text.clone(),
-        from: User { id: state.id },
-        to: Channel::Room(public_room_id),
-    };
-
-    let server_msg = MessageToServer::Text(text_msg);
-    let serialized_data =
-        bincode::serialize(&server_msg).context("failed bincode writing to server")?;
-
-    framed_write_tcp
-        .send(Bytes::from(serialized_data))
-        .await
-        .context("failed to TCP send msg to server")?;
-    Ok(())
-}
-
-async fn init_app_state(tcp: &mut TcpStream) -> Result<()> {
-    let mut framed_tcp = Framed::new(tcp, LengthDelimitedCodec::new());
-    let bytes = match framed_tcp.next().await {
-        Some(b) => b.context("faild to load init data from server")?,
-        None => {
-            bail!("lets bail!")
-        }
-    };
-    let init_data: InitClientData =
-        bincode::deserialize(&bytes).context("incorrect init data from server")?;
-
-    init_global_state(init_data.id);
-    Ok(())
 }

@@ -1,6 +1,7 @@
-use chat_app::{
-    server_lib::log,
-    shared_lib::{get_addr, Channel, InitClientData, MessageToServer, RoomChannel},
+use chat_app::server_lib::log;
+use chat_app::shared_lib::{
+    types::{Channel, InitClientData, RoomChannel, ServerMessage},
+    util_functions::get_addr,
 };
 use futures::TryStreamExt;
 use futures::{SinkExt, StreamExt};
@@ -27,9 +28,9 @@ const PUBLIC_ROOM_ID_STR: &str = "7e40f106-3e7d-498a-94cc-5fa7f62cfce6";
 
 #[derive(Error, Debug)]
 enum DataProcessingError {
-    #[error("Failed read/write framed message vie TCP stream, actual error: {0}")]
+    #[error("Failed to read/write framed message vie TCP stream, actual error: {0}")]
     FramedTextMessage(#[from] std::io::Error),
-    #[error("Failed serialize / deserialize using bincode, actual error: {0}")]
+    #[error("Failed to serialize / deserialize using bincode, actual error: {0}")]
     Bincode(#[from] Box<bincode::ErrorKind>),
 }
 
@@ -82,7 +83,7 @@ async fn handle_connection(mut tcp: TcpStream, mut public_room: RoomChannel) {
     loop {
         select! {
             result = read_framed_tcp.next() =>{
-                match data_from_client(result, &room_channels, &direct_channels).await {
+                match handle_data_from_client(result, &room_channels, &direct_channels).await {
                     Ok(()) => {},
                     Err(err) => log(err.into(), None)
                 };
@@ -98,7 +99,7 @@ async fn handle_connection(mut tcp: TcpStream, mut public_room: RoomChannel) {
     }
 }
 
-async fn data_from_client(
+async fn handle_data_from_client(
     result: Option<Result<Bytes, IoError>>,
     room_channels: &HashMap<Uuid, broadcast::Sender<Bytes>>,
     direct_channels: &HashMap<Uuid, mpsc::Sender<Bytes>>,
@@ -107,26 +108,18 @@ async fn data_from_client(
         Some(frame) => {
             let bytes = frame?;
 
-            let message: MessageToServer = bincode::deserialize(&bytes)?;
+            let message: ServerMessage = bincode::deserialize(&bytes)?;
 
             match message {
-                MessageToServer::File(_) => {
-                    todo!()
+                ServerMessage::Text(msg) => {
+                    send_data(room_channels, direct_channels, msg.to, bytes).await
                 }
-                MessageToServer::Text(msg) => match msg.to {
-                    Channel::Direct(id) => {
-                        let tx = direct_channels.get(&id).unwrap();
-                        if tx.send(bytes).await.is_err() {
-                            todo!("receivers got dropped, handle after implementing rooms");
-                        };
-                    }
-                    Channel::Room(id) => {
-                        let tx = room_channels.get(&id).unwrap();
-                        if tx.send(bytes).is_err() {
-                            todo!("receivers got dropped, handle after implementing rooms");
-                        };
-                    }
-                },
+                ServerMessage::File(c) => {
+                    send_data(room_channels, direct_channels, c.to, bytes).await
+                }
+                ServerMessage::FileMetadata(m) => {
+                    send_data(room_channels, direct_channels, m.to, bytes).await
+                }
             };
         }
         None => {}
@@ -159,4 +152,26 @@ async fn init_client(tcp: &mut TcpStream) -> Result<InitClientData, DataProcessi
     let encoded = bincode::serialize(&itid_data)?;
     framed_tcp.send(encoded.into()).await?;
     Ok(itid_data)
+}
+
+async fn send_data(
+    room_channels: &HashMap<Uuid, broadcast::Sender<Bytes>>,
+    direct_channels: &HashMap<Uuid, mpsc::Sender<Bytes>>,
+    target: Channel,
+    data: Bytes,
+) {
+    match target {
+        Channel::Direct(id) => {
+            let tx = direct_channels.get(&id).unwrap();
+            if tx.send(data).await.is_err() {
+                todo!("receivers got dropped, handle after implementing rooms");
+            };
+        }
+        Channel::Room(id) => {
+            let tx = room_channels.get(&id).unwrap();
+            if tx.send(data).is_err() {
+                todo!("receivers got dropped, handle after implementing rooms");
+            };
+        }
+    }
 }
