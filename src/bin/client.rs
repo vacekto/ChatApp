@@ -4,10 +4,14 @@ use chat_app::{
         handle_file_chunk, handle_file_metadata, handle_text_message, init_app_state, send_file,
         send_text_msg,
     },
-    shared_lib::{types::ServerMessage, util_functions::get_addr},
+    shared_lib::{
+        config::PUBLIC_ROOM_ID_STR,
+        types::{Channel, ServerMessage},
+        util_functions::get_addr,
+    },
 };
 use futures::StreamExt;
-use std::{thread, time::Duration};
+use std::{str::FromStr, thread, time::Duration};
 use tokio::{
     io::{stdin, AsyncBufReadExt, BufReader},
     net::{
@@ -18,6 +22,7 @@ use tokio::{
     task,
 };
 use tokio_util::codec::{FramedRead, LengthDelimitedCodec};
+use uuid::Uuid;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -71,8 +76,22 @@ async fn write_to_server(mut tcp: OwnedWriteHalf, tx: Sender<()>) -> Result<()> 
                 send_file(&mut tcp, path).await?;
             }
 
+            (Some(cmd), Some(id)) => {
+                println!("{}", id);
+                send_text_msg(
+                    &mut tcp,
+                    &mut String::from(cmd),
+                    Channel::Direct(Uuid::from_str(id.trim()).unwrap()),
+                )
+                .await?;
+            }
             _ => {
-                send_text_msg(&mut tcp, &mut buff).await?;
+                send_text_msg(
+                    &mut tcp,
+                    &mut buff,
+                    Channel::Direct(Uuid::from_str(PUBLIC_ROOM_ID_STR).unwrap()),
+                )
+                .await?;
             }
         }
 
@@ -87,13 +106,14 @@ async fn listen_for_server(mut tcp: OwnedReadHalf, tx: Sender<()>) -> Result<()>
 
     loop {
         if let Some(frame) = framed.next().await {
+            println!("new message");
             let bytes = frame.context("failed reading framed msg from server")?;
 
             let msg: ServerMessage =
                 bincode::deserialize(&bytes).context("failed bincode reading from server")?;
 
             match msg {
-                ServerMessage::File(chunk) => handle_file_chunk(chunk).await?,
+                ServerMessage::FileChunk(chunk) => handle_file_chunk(chunk).await?,
                 ServerMessage::Text(msg) => handle_text_message(msg).await?,
                 ServerMessage::FileMetadata(meta) => handle_file_metadata(meta).await?,
             }

@@ -1,6 +1,4 @@
-use bytes::Bytes;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, mpsc};
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize)]
@@ -20,16 +18,6 @@ pub enum Channel {
     Direct(Uuid),
 }
 
-pub struct DirectChannel {
-    pub tx: mpsc::Sender<Bytes>,
-    pub rx: mpsc::Receiver<Bytes>,
-}
-
-pub struct RoomChannel {
-    pub tx: broadcast::Sender<Bytes>,
-    pub rx: broadcast::Receiver<Bytes>,
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct TextMessage {
     pub text: String,
@@ -45,17 +33,17 @@ pub struct Chunk<'a> {
     pub stream_id: Uuid,
 }
 
+// messages both client -> server  and server -> client
 #[derive(Deserialize, Serialize)]
 #[serde(bound(deserialize = "'de: 'a"))]
 pub enum ServerMessage<'a> {
     Text(TextMessage),
-    File(Chunk<'a>),
+    FileChunk(Chunk<'a>),
     FileMetadata(FileMetadata),
 }
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct FileMetadata {
-    pub size: u64,
     pub name: String,
     pub stream_id: Uuid,
     pub to: Channel,

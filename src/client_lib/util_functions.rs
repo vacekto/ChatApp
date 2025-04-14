@@ -12,12 +12,14 @@ use tokio::{
 use tokio_util::codec::{Framed, FramedWrite, LengthDelimitedCodec};
 use uuid::Uuid;
 
-use crate::shared_lib::types::{
-    Channel, Chunk, FileMetadata, InitClientData, ServerMessage, TextMessage, User,
+use crate::shared_lib::{
+    config::PUBLIC_ROOM_ID_STR,
+    types::{Channel, Chunk, FileMetadata, InitClientData, ServerMessage, TextMessage, User},
 };
 
 use super::{
     app_state::{get_global_state, init_global_state},
+    config::FILES_DIR,
     types::ActiveStream,
 };
 
@@ -29,13 +31,10 @@ pub async fn send_file(tcp: &mut OwnedWriteHalf, path: &str) -> Result<()> {
     let mut framed_tcp = FramedWrite::new(tcp, LengthDelimitedCodec::new());
     let state = get_global_state().await;
 
-    let meta = file.metadata().await?;
-
     let meta = FileMetadata {
-        size: meta.len(),
         name: String::from(path.file_name().unwrap().to_str().unwrap()),
         stream_id,
-        to: Channel::Room(Uuid::from_str("7e40f106-3e7d-498a-94cc-5fa7f62cfce6").unwrap()),
+        to: Channel::Room(Uuid::from_str(PUBLIC_ROOM_ID_STR).unwrap()),
     };
 
     let server_message = ServerMessage::FileMetadata(meta);
@@ -54,11 +53,11 @@ pub async fn send_file(tcp: &mut OwnedWriteHalf, path: &str) -> Result<()> {
         let chunk = Chunk {
             data: &buffer[0..n],
             from: User { id: state.id },
-            to: Channel::Room(Uuid::from_str("7e40f106-3e7d-498a-94cc-5fa7f62cfce6").unwrap()),
+            to: Channel::Room(Uuid::from_str(PUBLIC_ROOM_ID_STR).unwrap()),
             stream_id,
         };
 
-        let msg = ServerMessage::File(chunk);
+        let msg = ServerMessage::FileChunk(chunk);
 
         let serialized =
             bincode::serialize(&msg).context("bincode failed to serialize file chunk")?;
@@ -68,15 +67,15 @@ pub async fn send_file(tcp: &mut OwnedWriteHalf, path: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn send_text_msg(tcp: &mut OwnedWriteHalf, text: &mut String) -> Result<()> {
+pub async fn send_text_msg(tcp: &mut OwnedWriteHalf, text: &mut String, to: Channel) -> Result<()> {
     let mut framed_write_tcp = FramedWrite::new(tcp, LengthDelimitedCodec::new());
     let state = get_global_state().await;
-    let public_room_id = Uuid::from_str("7e40f106-3e7d-498a-94cc-5fa7f62cfce6").unwrap();
+    // let public_room_id = Uuid::from_str(PUBLIC_ROOM_ID_STR).unwrap();
 
     let text_msg = TextMessage {
         text: text.clone(),
         from: User { id: state.id },
-        to: Channel::Room(public_room_id),
+        to,
     };
 
     let server_msg = ServerMessage::Text(text_msg);
@@ -91,12 +90,11 @@ pub async fn send_text_msg(tcp: &mut OwnedWriteHalf, text: &mut String) -> Resul
 }
 
 pub async fn handle_file_metadata(meta: FileMetadata) -> Result<()> {
-    let file: File = File::create(String::from("./files/") + &meta.name).await?;
+    let file: File = File::create(String::from(FILES_DIR) + &meta.name).await?;
     let mut state = get_global_state().await;
 
     let stream = ActiveStream {
         file_handle: file,
-        size: meta.size,
         written: 0,
     };
 
@@ -116,6 +114,8 @@ pub async fn init_app_state(tcp: &mut TcpStream) -> Result<()> {
     let init_data: InitClientData =
         bincode::deserialize(&bytes).context("incorrect init data from server")?;
 
+    println!("{}", init_data.id);
+
     init_global_state(init_data.id);
     Ok(())
 }
@@ -125,7 +125,6 @@ pub async fn handle_file_chunk<'a>(chunk: Chunk<'a>) -> Result<()> {
     let stream = state.active_streams.get_mut(&chunk.stream_id).unwrap();
     stream.write_all(&chunk.data).await;
     stream.written += chunk.data.len() as u64;
-    println!("written: {}, size: {}", stream.written, stream.size);
     Ok(())
 }
 
