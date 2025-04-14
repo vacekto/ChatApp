@@ -4,6 +4,7 @@ use tokio::{fs::File, io::AsyncWriteExt};
 pub struct ActiveStream {
     pub file_handle: File,
     pub written: u64,
+    pub size: u64,
 }
 
 impl ActiveStream {

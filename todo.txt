@@ -1,3 +1,4 @@
 - handle client drop
 - handle server channel errors
 - fix public room as default channel
+- refactor server

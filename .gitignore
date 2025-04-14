@@ -1,2 +1,5 @@
-/target
-/todo.txt
+target
+todo.txt
+.VSCodeCounter
+.vscode
+files
