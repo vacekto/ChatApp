@@ -1,10 +1,9 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Mutex};
 
 use once_cell::sync::OnceCell;
-use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use super::types::ActiveStream;
+use super::util::types::ActiveStream;
 
 #[derive(Debug)]
 pub struct AppState {
@@ -23,10 +22,10 @@ pub fn init_global_state(id: Uuid) {
         .expect("Global already initialized");
 }
 
-pub async fn get_global_state() -> tokio::sync::MutexGuard<'static, AppState> {
+pub fn get_global_state() -> std::sync::MutexGuard<'static, AppState> {
     GLOBAL
         .get()
         .expect("Global state not initialized")
         .lock()
-        .await
+        .unwrap_or_else(|e| e.into_inner())
 }

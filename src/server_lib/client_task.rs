@@ -21,7 +21,7 @@ use crate::{
     server_lib::util::config::log,
     shared_lib::{
         config::PUBLIC_ROOM_ID_STR,
-        types::{Channel, ServerMessage},
+        types::{Channel, ClientToServerMsg, InitClientData, ServerToClientMsg},
     },
 };
 
@@ -29,14 +29,14 @@ use super::util::{
     config::{COMM_CLIENT_CAPACITY, DIRECT_CAPACITY, MANAGER_CLIENT_CAPACITY},
     errors::DataParsingError,
     types::{
-        ChannelTransitPayload, ClientToManagerMessage, DirectChannelTransit,
-        ManagerToClientMessage, MpscChannel,
+        ChannelTransitPayload, ClientToManagerMessage, DirectChannelTransit, ManagerToClientMsg,
+        MpscChannel,
     },
 };
 
 pub struct ClientTask {
     id: Uuid,
-    manager: MpscChannel<ClientToManagerMessage, ManagerToClientMessage>,
+    manager: MpscChannel<ClientToManagerMessage, ManagerToClientMsg>,
     comm: MpscChannel,
     rx_room: broadcast::Receiver<Bytes>,
     tcp_read: FramedRead<OwnedReadHalf, LengthDelimitedCodec>,
@@ -50,8 +50,9 @@ impl ClientTask {
         tcp: TcpStream,
         tx_client_manager: mpsc::Sender<ClientToManagerMessage>,
         tx_public_room: broadcast::Sender<Bytes>,
-        id: Uuid,
     ) -> Self {
+        let id = Uuid::new_v4();
+
         let (tcp_read, tcp_write) = tcp.into_split();
         let tcp_read = FramedRead::new(tcp_read, LengthDelimitedCodec::new());
         let tcp_write = FramedWrite::new(tcp_write, LengthDelimitedCodec::new());
@@ -65,7 +66,7 @@ impl ClientTask {
         );
 
         let (tx_manager_client, rx_manager_client) =
-            mpsc::channel::<ManagerToClientMessage>(MANAGER_CLIENT_CAPACITY);
+            mpsc::channel::<ManagerToClientMsg>(MANAGER_CLIENT_CAPACITY);
 
         let (tx_comm_client, rx_comm_client) = mpsc::channel::<Bytes>(COMM_CLIENT_CAPACITY);
 
@@ -99,7 +100,7 @@ impl ClientTask {
     pub async fn run(mut self) {
         loop {
             select! {
-                result = self.tcp_read.next() => if let Err(err)= self.handle_incoming(result).await {
+                result = self.tcp_read.next() => if let Err(err)= self.handle_tcp_msg(result).await {
                     log(err.into(), None);
                     todo!("unhandled error, disconnect and cleanup")
                 },
@@ -115,7 +116,7 @@ impl ClientTask {
         }
     }
 
-    async fn handle_incoming(
+    async fn handle_tcp_msg(
         &mut self,
         result: Option<Result<BytesMut, std::io::Error>>,
     ) -> Result<(), DataParsingError> {
@@ -123,13 +124,14 @@ impl ClientTask {
             Some(frame) => {
                 let data: Bytes = frame.map_err(|err| DataParsingError::from(err))?.into();
 
-                let message: ServerMessage =
+                let message: ClientToServerMsg =
                     bincode::deserialize(&data).map_err(|err| DataParsingError::from(err))?;
 
                 match message {
-                    ServerMessage::Text(msg) => self.send_data(data, msg.to).await,
-                    ServerMessage::FileChunk(c) => self.send_data(data, c.to).await,
-                    ServerMessage::FileMetadata(m) => self.send_data(data, m.to).await,
+                    ClientToServerMsg::Text(msg) => self.send_data(data, msg.to).await,
+                    ClientToServerMsg::FileChunk(c) => self.send_data(data, c.to).await,
+                    ClientToServerMsg::FileMetadata(m) => self.send_data(data, m.to).await,
+                    ClientToServerMsg::InitClient => self.init_client().await?,
                 };
             }
             None => {
@@ -139,17 +141,17 @@ impl ClientTask {
         Ok(())
     }
 
-    async fn handle_manager_msg(&mut self, result: Option<ManagerToClientMessage>) {
+    async fn handle_manager_msg(&mut self, result: Option<ManagerToClientMsg>) {
         if let Some(t) = result {
             match t {
-                ManagerToClientMessage::EstablishDirectComm(c) => {
+                ManagerToClientMsg::EstablishDirectComm(c) => {
                     self.direct_channels
                         .insert(c.payload.from, c.payload.tx_client_client);
 
                     let tx_client_client = self.create_direct_comm_task();
                     c.ack.send(tx_client_client).unwrap();
                 }
-                ManagerToClientMessage::JoinRoom(c) => {
+                ManagerToClientMsg::JoinRoom(c) => {
                     self.room_channels.insert(c.room_id, c.tx.clone());
 
                     // let rx_client_room = c.tx.subscribe();
@@ -220,8 +222,13 @@ impl ClientTask {
 
         let tx = self.comm.tx.clone();
         task::spawn(async move {
-            while let Some(data) = rx_client_client.recv().await {
-                tx.send(data).await.unwrap();
+            loop {
+                match rx_client_client.recv().await {
+                    Some(data) => tx.send(data).await.unwrap(),
+                    None => {
+                        todo!("other user disconnected, handle...");
+                    }
+                }
             }
         });
 
@@ -245,6 +252,13 @@ impl ClientTask {
                 todo!("senders got dropped, handle after implementing rooms");
             }
         };
+        Ok(())
+    }
+    async fn init_client(&mut self) -> Result<(), DataParsingError> {
+        let init_data = ServerToClientMsg::InitClient(InitClientData { id: self.id });
+
+        let encoded = bincode::serialize(&init_data)?;
+        self.tcp_write.send(encoded.into()).await?;
         Ok(())
     }
 }

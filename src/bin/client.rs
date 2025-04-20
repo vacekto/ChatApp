@@ -1,35 +1,20 @@
-use anyhow::{anyhow, Context, Result};
-use bytes::Bytes;
+use anyhow::Result;
 use chat_app::{
-    client_lib::functions::{
-        handle_file_chunk, handle_file_metadata, handle_text_message, init_app_state, send_file,
-        send_text_msg, write_server,
+    client_lib::{
+        functions::{read_server, read_stdin, run_in_thread, write_server},
+        util::{errors::ThreadError, types::ThreadPurpuse},
     },
     server_lib::util::config::{SERVER_HOSTNAME, SERVER_PORT},
-    shared_lib::{
-        config::PUBLIC_ROOM_ID_STR,
-        types::{Channel, ServerMessage},
-        util_functions::get_addr,
-    },
+    shared_lib::{types::ClientToServerMsg, util_functions::get_addr},
 };
-use futures::StreamExt;
-use std::{str::FromStr, thread, time::Duration};
-use tokio::{
-    io::{stdin, AsyncBufReadExt, BufReader},
-    net::{tcp::OwnedReadHalf, TcpStream},
-    sync::mpsc::{self},
-    task,
-};
-use tokio_util::codec::{FramedRead, LengthDelimitedCodec};
-use uuid::Uuid;
+use std::{net::TcpStream, sync::mpsc, thread, time::Duration};
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 2f)]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     let addr = get_addr(SERVER_HOSTNAME, SERVER_PORT);
 
-    let mut tcp = loop {
+    let read_tcp = loop {
         println!("attempting to establish connection..");
-        match TcpStream::connect(&addr).await {
+        match TcpStream::connect(&addr) {
             Ok(s) => {
                 println!("connection established with: :{}", addr);
                 break s;
@@ -41,107 +26,39 @@ async fn main() -> Result<()> {
         }
     };
 
-    init_app_state(&mut tcp).await?;
+    let write_tcp = read_tcp.try_clone()?;
 
-    let (read_tcp, write_tcp) = tcp.into_split();
-    let (tx_parse_write, rx_write) = mpsc::channel::<Bytes>(20);
+    let (tx_stdin_write, rx) = mpsc::channel::<ClientToServerMsg>();
+    let tx_init = tx_stdin_write.clone();
 
-    let read_tcp_task = task::spawn(read_server(read_tcp));
-    let write_tcp_task = task::spawn(write_server(write_tcp, rx_write));
-    let parse_input_task = task::spawn(parse_input(tx_parse_write));
+    let (tx_thread_result, rx_thread_result) = mpsc::channel::<Result<String, ThreadError>>();
 
-    tokio::select! {
-        res = read_tcp_task => {
-            match res {
-                Ok(Err(err)) => println!("listen task returned with an error: {}", {err}),
-                Ok(Ok(_)) => println!("listen task returned"),
-                Err(err) => println!("Error from listen task: {}", err)
-            };
-        }
+    run_in_thread(ThreadPurpuse::WriteServer, tx_thread_result.clone(), || {
+        write_server(write_tcp, rx)
+    });
 
-        res = write_tcp_task => {
-            match res {
-                Ok(Err(err)) => println!("write task returned with an error: {}", {err}),
-                Ok(_) => println!("write task returned"),
-                Err(err) => println!("Error from write task: {}", err)
-            };
-        }
+    run_in_thread(ThreadPurpuse::ReadServer, tx_thread_result.clone(), || {
+        read_server(read_tcp)
+    });
 
-        res = parse_input_task => {
-            match res {
-                Ok(Err(err)) => println!("listen task returned with an error: {}", {err}),
-                Ok(Ok(_)) => println!("listen task returned"),
-                Err(err) => println!("Error from listen task: {}", err)
-            };
-        }
+    run_in_thread(ThreadPurpuse::StdIn, tx_thread_result.clone(), || {
+        read_stdin(tx_stdin_write)
+    });
 
-    }
-
-    println!("program finished");
-
-    Ok(())
-}
-
-async fn parse_input(tx_parse_write: mpsc::Sender<Bytes>) -> Result<()> {
-    let mut buff = String::new();
-    let mut s_in = BufReader::new(stdin());
-
-    while let Ok(_) = s_in.read_line(&mut buff).await {
-        let mut itr = buff.split_whitespace();
-
-        match (itr.next(), itr.next()) {
-            (Some(cmd), None) if cmd == ".quit" => {
-                break;
-            }
-            (Some(cmd), Some(_)) if cmd == ".file" && itr.count() != 0 => {
-                println!("too many arguments, expected format <>.file> <command>")
-            }
-            (Some(cmd), Some(path)) if cmd == ".file" => {
-                send_file(tx_parse_write.clone(), path).await?;
-            }
-
-            (Some(cmd), Some(id)) => {
-                println!("{}", id);
-                send_text_msg(
-                    tx_parse_write.clone(),
-                    &mut String::from(cmd),
-                    Channel::Direct(Uuid::from_str(id.trim()).unwrap()),
-                )
-                .await?;
-            }
-            _ => {
-                send_text_msg(
-                    tx_parse_write.clone(),
-                    &mut buff,
-                    Channel::Room(Uuid::from_str(PUBLIC_ROOM_ID_STR).unwrap()),
-                )
-                .await?;
-            }
-        }
-
-        buff.clear();
-    }
-    Ok(())
-}
-
-async fn read_server(mut tcp: OwnedReadHalf) -> Result<()> {
-    let mut framed = FramedRead::new(&mut tcp, LengthDelimitedCodec::new());
+    let init_msg = ClientToServerMsg::InitClient;
+    tx_init.send(init_msg)?;
 
     loop {
-        if let Some(frame) = framed.next().await {
-            let bytes = frame.context("failed reading framed msg from server")?;
-
-            let msg: ServerMessage =
-                bincode::deserialize(&bytes).context("failed bincode reading from server")?;
-
-            println!("message from server: {:?}", msg);
-            match msg {
-                ServerMessage::FileChunk(chunk) => handle_file_chunk(chunk).await?,
-                ServerMessage::Text(msg) => handle_text_message(msg).await?,
-                ServerMessage::FileMetadata(meta) => handle_file_metadata(meta).await?,
+        match rx_thread_result.recv().unwrap() {
+            Ok(res) => println!("{}", res),
+            Err(err) => {
+                eprintln!("{}\n", err);
+                match err {
+                    ThreadError::ReadServer(err) => eprintln!("{}", err.backtrace()),
+                    ThreadError::StdIn(err) => eprintln!("{}", err.backtrace()),
+                    ThreadError::WriteServer(err) => eprintln!("{}", err.backtrace()),
+                }
             }
-        } else {
-            return Err(anyhow!("Server dropped"));
-        }
+        };
     }
 }

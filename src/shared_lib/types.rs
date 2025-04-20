@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct InitClientData {
     pub id: Uuid,
 }
@@ -33,9 +33,17 @@ pub struct Chunk {
     pub stream_id: Uuid,
 }
 
-// messages both client -> server  and server -> client
 #[derive(Deserialize, Serialize, Debug)]
-pub enum ServerMessage {
+pub enum ClientToServerMsg {
+    InitClient,
+    Text(TextMessage),
+    FileChunk(Chunk),
+    FileMetadata(FileMetadata),
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub enum ServerToClientMsg {
+    InitClient(InitClientData),
     Text(TextMessage),
     FileChunk(Chunk),
     FileMetadata(FileMetadata),

@@ -15,12 +15,12 @@ pub struct DirectChannelTransit {
 }
 
 pub enum ClientToManagerMessage {
-    Init(mpsc::Sender<ManagerToClientMessage>, Uuid),
+    Init(mpsc::Sender<ManagerToClientMsg>, Uuid),
     ClientDropped(Uuid),
     EstablishDirectComm(DirectChannelTransit),
 }
 
-pub enum ManagerToClientMessage {
+pub enum ManagerToClientMsg {
     EstablishDirectComm(DirectChannelTransit),
     JoinRoom(RoomChannelTransit),
 }

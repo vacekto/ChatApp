@@ -1,36 +1,32 @@
-use futures::{SinkExt, StreamExt};
+use std::io::{stdin, BufRead, BufReader, ErrorKind, Read, Write};
+use std::net::TcpStream;
 use std::str::FromStr;
+use std::sync::mpsc;
+use std::thread;
 use std::{os::unix::fs::MetadataExt, path::Path};
-use tokio::io::AsyncReadExt;
-use tokio::sync::mpsc;
 
-use anyhow::{bail, Context, Result};
-use bytes::Bytes;
-use tokio::{
-    fs::File,
-    net::{tcp::OwnedWriteHalf, TcpStream},
-};
-use tokio_util::codec::{Framed, FramedWrite, LengthDelimitedCodec};
+use anyhow::{Context, Result};
 use uuid::Uuid;
 
+use crate::client_lib::app_state::{get_global_state, init_global_state};
+use crate::shared_lib::types::ClientToServerMsg;
 use crate::shared_lib::{
     config::PUBLIC_ROOM_ID_STR,
-    types::{Channel, Chunk, FileMetadata, InitClientData, ServerMessage, TextMessage, User},
+    types::{Channel, Chunk, FileMetadata, ServerToClientMsg, TextMessage, User},
 };
 
-use super::config::FILES_DIR;
-use super::{
-    app_state::{get_global_state, init_global_state},
-    types::ActiveStream,
-};
+use super::util::config::{FILES_DIR, TCP_FRAME_SIZE_HEADER};
+use super::util::errors::ThreadError;
+use super::util::types::{ActiveStream, ThreadPurpuse};
 
-pub async fn send_file(tx_parse_write: mpsc::Sender<Bytes>, path: &str) -> Result<()> {
+fn send_file(tx_parse_write: mpsc::Sender<ClientToServerMsg>, path: &str) -> Result<()> {
     let path = Path::new(path);
+    let mut file = std::fs::File::open(path)?;
+    let meta = file.metadata()?;
+
     let stream_id = Uuid::new_v4();
-    let mut file = File::open(path).await?;
     let mut buffer = [0u8; 8192];
-    let state = get_global_state().await;
-    let meta = file.metadata().await?;
+    let state = get_global_state();
 
     let meta = FileMetadata {
         name: String::from(path.file_name().unwrap().to_str().unwrap()),
@@ -39,14 +35,12 @@ pub async fn send_file(tx_parse_write: mpsc::Sender<Bytes>, path: &str) -> Resul
         size: meta.size(),
     };
 
-    let server_message = ServerMessage::FileMetadata(meta);
+    let metadata = ClientToServerMsg::FileMetadata(meta);
 
-    let server_message = Bytes::from(bincode::serialize(&server_message)?);
-
-    tx_parse_write.send(server_message).await?;
+    tx_parse_write.send(metadata)?;
 
     loop {
-        let n = file.read(&mut buffer).await?;
+        let n = file.read(&mut buffer)?;
         if n == 0 {
             break;
         }
@@ -57,103 +51,206 @@ pub async fn send_file(tx_parse_write: mpsc::Sender<Bytes>, path: &str) -> Resul
             stream_id,
         };
 
-        let msg = ServerMessage::FileChunk(chunk);
+        let chunk = ClientToServerMsg::FileChunk(chunk);
 
-        let serialized = Bytes::from(
-            bincode::serialize(&msg).context("bincode failed to serialize file chunk")?,
-        );
-
-        tx_parse_write.send(serialized).await?;
+        tx_parse_write.send(chunk)?;
     }
     Ok(())
 }
 
-pub async fn send_text_msg(
-    tx_parse_write: mpsc::Sender<Bytes>,
-    text: &mut String,
-    to: Channel,
-) -> Result<()> {
-    let state = get_global_state().await;
-    // let public_room_id = Uuid::from_str(PUBLIC_ROOM_ID_STR).unwrap();
+pub fn handle_file_chunk(chunk: Chunk) -> Result<()> {
+    let mut state = get_global_state();
+    let stream = state.active_streams.get_mut(&chunk.stream_id).unwrap();
+    let bytes_to_write = std::cmp::min(chunk.data.len(), (stream.size - stream.written) as usize);
 
-    let text_msg = TextMessage {
-        text: text.clone(),
+    stream
+        .file_handle
+        .write_all(&chunk.data[0..bytes_to_write])?;
+    stream.written += chunk.data.len() as u64;
+
+    let written = stream.written;
+    let size = stream.size;
+
+    if written == size {
+        state.active_streams.remove(&chunk.stream_id).unwrap();
+    }
+
+    Ok(())
+}
+
+pub fn write_server(mut tcp: TcpStream, rx: mpsc::Receiver<ClientToServerMsg>) -> Result<()> {
+    while let Ok(data) = rx.recv() {
+        let serialized = bincode::serialize(&data).context("incorrect init data from server")?;
+        let size = serialized.len();
+
+        let mut framed: Vec<u8> = vec![
+            (size >> 24) as u8,
+            (size >> 16) as u8,
+            (size >> 8) as u8,
+            size as u8,
+        ];
+
+        framed.extend_from_slice(&serialized);
+
+        tcp.write_all(&framed)?;
+    }
+
+    Ok(())
+}
+
+pub fn read_server(mut tcp: TcpStream) -> Result<()> {
+    loop {
+        let bytes = read_framed_tcp_msg(&mut tcp)?;
+        let message: ServerToClientMsg = bincode::deserialize(&bytes)?;
+        println!("new message from server: {:?}", message);
+
+        match message {
+            ServerToClientMsg::FileChunk(chunk) => handle_file_chunk(chunk)?,
+            ServerToClientMsg::FileMetadata(meta) => handle_file_metadata(meta)?,
+            ServerToClientMsg::InitClient(init) => init_global_state(init.id),
+            ServerToClientMsg::Text(msg) => handle_text_message(msg),
+        }
+    }
+}
+
+fn handle_text_message(msg: TextMessage) {
+    println!("new message: {}", msg.text);
+}
+
+fn read_framed_tcp_msg(tcp: &mut TcpStream) -> Result<Vec<u8>> {
+    let mut size_buf = [0u8; TCP_FRAME_SIZE_HEADER];
+
+    let mut tcp = BufReader::new(tcp);
+
+    match tcp.read_exact(&mut size_buf) {
+        Err(e) if e.kind() == ErrorKind::UnexpectedEof => {
+            todo!("server dropped... !!.       !");
+        }
+        Err(e) => return Err(e).context("Error reading TCP size header"),
+        _ => {}
+    }
+
+    let size = ((size_buf[0] as usize) << 24)
+        + ((size_buf[1] as usize) << 16)
+        + ((size_buf[2] as usize) << 8)
+        + size_buf[3] as usize;
+
+    let mut data = vec![0u8; size];
+
+    tcp.read_exact(&mut data)
+        .context("closed connection while reading data of framed message")
+        .unwrap();
+
+    Ok(data)
+}
+
+pub fn read_stdin(tx: mpsc::Sender<ClientToServerMsg>) -> Result<()> {
+    let mut buff = String::new();
+    let mut s_in = BufReader::new(stdin());
+
+    while let Ok(_) = s_in.read_line(&mut buff) {
+        let mut itr = buff.split_whitespace();
+
+        match (itr.next(), itr.next()) {
+            (Some(cmd), None) if cmd == ".quit" => {
+                break;
+            }
+            (Some(cmd), Some(_)) if cmd == ".file" && itr.count() != 0 => {
+                println!("too many arguments, expected format <>.file> <command>")
+            }
+            (Some(cmd), Some(path)) if cmd == ".file" => {
+                send_file(tx.clone(), path)?;
+            }
+
+            (Some(_), Some(id)) => {
+                println!("{}", id);
+                send_text_msg(
+                    buff.clone(),
+                    Channel::Direct(Uuid::from_str(id.trim()).unwrap()),
+                    tx.clone(),
+                )?;
+            }
+            _ => {
+                send_text_msg(
+                    buff.clone(),
+                    Channel::Room(Uuid::from_str(PUBLIC_ROOM_ID_STR)?),
+                    tx.clone(),
+                )?;
+            }
+        }
+
+        buff.clear();
+    }
+    Ok(())
+}
+
+fn send_text_msg(msg: String, to: Channel, tx: mpsc::Sender<ClientToServerMsg>) -> Result<()> {
+    let state = get_global_state();
+
+    // let state =
+    let msg = ClientToServerMsg::Text(TextMessage {
+        text: msg,
         from: User { id: state.id },
         to,
-    };
+    });
 
-    let server_msg = ServerMessage::Text(text_msg);
-    let serialized_data =
-        Bytes::from(bincode::serialize(&server_msg).context("failed bincode writing to server")?);
-
-    tx_parse_write.send(serialized_data).await?;
-
+    tx.send(msg)?;
     Ok(())
 }
 
-pub async fn handle_file_metadata(meta: FileMetadata) -> Result<()> {
+fn handle_file_metadata(meta: FileMetadata) -> Result<()> {
     let path = String::from(FILES_DIR) + &meta.name;
     let path = Path::new(&path);
-
-    // Create parent directories
     if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
+        std::fs::create_dir_all(parent)?;
     }
 
-    let file: File = File::create(path).await?;
-    let mut state = get_global_state().await;
+    let file = std::fs::File::create(path)?;
+    let stream_id = meta.stream_id;
+
     let stream = ActiveStream {
         file_handle: file,
-        written: 0,
         size: meta.size,
+        written: 0,
     };
 
-    state.active_streams.insert(meta.stream_id, stream);
+    let mut state = get_global_state();
+
+    state.active_streams.insert(stream_id, stream);
+
     Ok(())
 }
 
-pub async fn init_app_state(tcp: &mut TcpStream) -> Result<()> {
-    let mut framed_tcp = Framed::new(tcp, LengthDelimitedCodec::new());
+fn catch_thread_erros<F>(
+    th: ThreadPurpuse,
+    tx: mpsc::Sender<Result<String, ThreadError>>,
+    f: F,
+) -> impl FnOnce()
+where
+    F: FnOnce() -> Result<()>,
+{
+    move || {
+        let result = match f() {
+            Ok(_) => Ok(format!("Thread {:?} returned successfully", th)),
+            Err(err) => match th {
+                ThreadPurpuse::ReadServer => Err(ThreadError::ReadServer(err)),
+                ThreadPurpuse::StdIn => Err(ThreadError::StdIn(err)),
+                ThreadPurpuse::WriteServer => Err(ThreadError::WriteServer(err)),
+            },
+        };
 
-    let bytes = match framed_tcp.next().await {
-        Some(data) => data.context("failed to load init data from server")?,
-        None => {
-            bail!("lets bail!")
-        }
-    };
-    let init_data: InitClientData =
-        bincode::deserialize(&bytes).context("incorrect init data from server")?;
-
-    println!("{}", init_data.id);
-
-    init_global_state(init_data.id);
-    Ok(())
-}
-
-pub async fn handle_file_chunk(chunk: Chunk) -> Result<()> {
-    let mut state = get_global_state().await;
-    let stream_state = state.active_streams.get_mut(&chunk.stream_id).unwrap();
-    let bytes_to_write = std::cmp::min(
-        chunk.data.len(),
-        (stream_state.size - stream_state.written) as usize,
-    );
-    stream_state.write_all(&chunk.data[0..bytes_to_write]).await;
-    stream_state.written += chunk.data.len() as u64;
-
-    println!("{}, {}", stream_state.size, stream_state.written);
-    Ok(())
-}
-
-pub async fn handle_text_message(msg: TextMessage) -> Result<()> {
-    println!("New message from{:?}:  \n {}", msg.from.id, msg.text);
-    Ok(())
-}
-
-pub async fn write_server(tcp: OwnedWriteHalf, mut rx: mpsc::Receiver<Bytes>) -> Result<()> {
-    let mut framed_tcp = FramedWrite::new(tcp, LengthDelimitedCodec::new());
-    while let Some(data) = rx.recv().await {
-        framed_tcp.send(data).await?;
+        tx.send(result).unwrap();
     }
+}
 
-    Ok(())
+pub fn run_in_thread<F>(th: ThreadPurpuse, tx: mpsc::Sender<Result<String, ThreadError>>, f: F)
+where
+    F: FnOnce() -> Result<()> + Send + 'static,
+{
+    let thread_name = format!("{:?}", th);
+
+    thread::Builder::new()
+        .name(thread_name.clone())
+        .spawn(catch_thread_erros(th, tx, f))
+        .expect(&format!("failed to buid {} thread", thread_name));
 }
