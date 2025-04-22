@@ -2,31 +2,29 @@ use std::io::{stdin, BufRead, BufReader, ErrorKind, Read, Write};
 use std::net::TcpStream;
 use std::str::FromStr;
 use std::sync::mpsc;
-use std::thread;
 use std::{os::unix::fs::MetadataExt, path::Path};
 
 use anyhow::{Context, Result};
 use uuid::Uuid;
 
-use crate::client_lib::app_state::{get_global_state, init_global_state};
-use crate::shared_lib::types::ClientToServerMsg;
+use crate::shared_lib::types::ClientServerMsg;
 use crate::shared_lib::{
     config::PUBLIC_ROOM_ID_STR,
-    types::{Channel, Chunk, FileMetadata, ServerToClientMsg, TextMessage, User},
+    types::{Channel, Chunk, FileMetadata, ServerClientMsg, TextMessage, User},
 };
 
+use super::global_states::app_state::{get_app_state, init_app_state};
 use super::util::config::{FILES_DIR, TCP_FRAME_SIZE_HEADER};
-use super::util::errors::ThreadError;
-use super::util::types::{ActiveStream, ThreadPurpuse};
+use super::util::types::ActiveStream;
 
-fn send_file(tx_parse_write: mpsc::Sender<ClientToServerMsg>, path: &str) -> Result<()> {
+fn send_file(tx_parse_write: mpsc::Sender<ClientServerMsg>, path: &str) -> Result<()> {
     let path = Path::new(path);
     let mut file = std::fs::File::open(path)?;
     let meta = file.metadata()?;
 
     let stream_id = Uuid::new_v4();
     let mut buffer = [0u8; 8192];
-    let state = get_global_state();
+    let state = get_app_state();
 
     let meta = FileMetadata {
         name: String::from(path.file_name().unwrap().to_str().unwrap()),
@@ -35,7 +33,7 @@ fn send_file(tx_parse_write: mpsc::Sender<ClientToServerMsg>, path: &str) -> Res
         size: meta.size(),
     };
 
-    let metadata = ClientToServerMsg::FileMetadata(meta);
+    let metadata = ClientServerMsg::FileMetadata(meta);
 
     tx_parse_write.send(metadata)?;
 
@@ -51,7 +49,7 @@ fn send_file(tx_parse_write: mpsc::Sender<ClientToServerMsg>, path: &str) -> Res
             stream_id,
         };
 
-        let chunk = ClientToServerMsg::FileChunk(chunk);
+        let chunk = ClientServerMsg::FileChunk(chunk);
 
         tx_parse_write.send(chunk)?;
     }
@@ -59,7 +57,7 @@ fn send_file(tx_parse_write: mpsc::Sender<ClientToServerMsg>, path: &str) -> Res
 }
 
 pub fn handle_file_chunk(chunk: Chunk) -> Result<()> {
-    let mut state = get_global_state();
+    let mut state = get_app_state();
     let stream = state.active_streams.get_mut(&chunk.stream_id).unwrap();
     let bytes_to_write = std::cmp::min(chunk.data.len(), (stream.size - stream.written) as usize);
 
@@ -78,7 +76,7 @@ pub fn handle_file_chunk(chunk: Chunk) -> Result<()> {
     Ok(())
 }
 
-pub fn write_server(mut tcp: TcpStream, rx: mpsc::Receiver<ClientToServerMsg>) -> Result<()> {
+pub fn write_server(mut tcp: TcpStream, rx: mpsc::Receiver<ClientServerMsg>) -> Result<()> {
     while let Ok(data) = rx.recv() {
         let serialized = bincode::serialize(&data).context("incorrect init data from server")?;
         let size = serialized.len();
@@ -101,14 +99,14 @@ pub fn write_server(mut tcp: TcpStream, rx: mpsc::Receiver<ClientToServerMsg>) -
 pub fn read_server(mut tcp: TcpStream) -> Result<()> {
     loop {
         let bytes = read_framed_tcp_msg(&mut tcp)?;
-        let message: ServerToClientMsg = bincode::deserialize(&bytes)?;
-        println!("new message from server: {:?}", message);
+        let message: ServerClientMsg = bincode::deserialize(&bytes)?;
+        // println!("new message from server: {:?}", message);
 
         match message {
-            ServerToClientMsg::FileChunk(chunk) => handle_file_chunk(chunk)?,
-            ServerToClientMsg::FileMetadata(meta) => handle_file_metadata(meta)?,
-            ServerToClientMsg::InitClient(init) => init_global_state(init.id),
-            ServerToClientMsg::Text(msg) => handle_text_message(msg),
+            ServerClientMsg::FileChunk(chunk) => handle_file_chunk(chunk)?,
+            ServerClientMsg::FileMetadata(meta) => handle_file_metadata(meta)?,
+            ServerClientMsg::InitClient(init) => init_app_state(init.id),
+            ServerClientMsg::Text(msg) => handle_text_message(msg),
         }
     }
 }
@@ -144,7 +142,7 @@ fn read_framed_tcp_msg(tcp: &mut TcpStream) -> Result<Vec<u8>> {
     Ok(data)
 }
 
-pub fn read_stdin(tx: mpsc::Sender<ClientToServerMsg>) -> Result<()> {
+pub fn read_stdin(tx: mpsc::Sender<ClientServerMsg>) -> Result<()> {
     let mut buff = String::new();
     let mut s_in = BufReader::new(stdin());
 
@@ -184,11 +182,11 @@ pub fn read_stdin(tx: mpsc::Sender<ClientToServerMsg>) -> Result<()> {
     Ok(())
 }
 
-fn send_text_msg(msg: String, to: Channel, tx: mpsc::Sender<ClientToServerMsg>) -> Result<()> {
-    let state = get_global_state();
+fn send_text_msg(msg: String, to: Channel, tx: mpsc::Sender<ClientServerMsg>) -> Result<()> {
+    let state = get_app_state();
 
     // let state =
-    let msg = ClientToServerMsg::Text(TextMessage {
+    let msg = ClientServerMsg::Text(TextMessage {
         text: msg,
         from: User { id: state.id },
         to,
@@ -214,43 +212,9 @@ fn handle_file_metadata(meta: FileMetadata) -> Result<()> {
         written: 0,
     };
 
-    let mut state = get_global_state();
+    let mut state = get_app_state();
 
     state.active_streams.insert(stream_id, stream);
 
     Ok(())
-}
-
-fn catch_thread_erros<F>(
-    th: ThreadPurpuse,
-    tx: mpsc::Sender<Result<String, ThreadError>>,
-    f: F,
-) -> impl FnOnce()
-where
-    F: FnOnce() -> Result<()>,
-{
-    move || {
-        let result = match f() {
-            Ok(_) => Ok(format!("Thread {:?} returned successfully", th)),
-            Err(err) => match th {
-                ThreadPurpuse::ReadServer => Err(ThreadError::ReadServer(err)),
-                ThreadPurpuse::StdIn => Err(ThreadError::StdIn(err)),
-                ThreadPurpuse::WriteServer => Err(ThreadError::WriteServer(err)),
-            },
-        };
-
-        tx.send(result).unwrap();
-    }
-}
-
-pub fn run_in_thread<F>(th: ThreadPurpuse, tx: mpsc::Sender<Result<String, ThreadError>>, f: F)
-where
-    F: FnOnce() -> Result<()> + Send + 'static,
-{
-    let thread_name = format!("{:?}", th);
-
-    thread::Builder::new()
-        .name(thread_name.clone())
-        .spawn(catch_thread_erros(th, tx, f))
-        .expect(&format!("failed to buid {} thread", thread_name));
 }

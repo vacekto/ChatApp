@@ -14,10 +14,3 @@ impl ActiveStream {
         Ok(self.file_handle.write_all(c)?)
     }
 }
-
-#[derive(Debug)]
-pub enum ThreadPurpuse {
-    WriteServer,
-    ReadServer,
-    StdIn,
-}

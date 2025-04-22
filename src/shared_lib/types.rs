@@ -34,7 +34,7 @@ pub struct Chunk {
 }
 
 #[derive(Deserialize, Serialize, Debug)]
-pub enum ClientToServerMsg {
+pub enum ClientServerMsg {
     InitClient,
     Text(TextMessage),
     FileChunk(Chunk),
@@ -42,7 +42,7 @@ pub enum ClientToServerMsg {
 }
 
 #[derive(Deserialize, Serialize, Debug)]
-pub enum ServerToClientMsg {
+pub enum ServerClientMsg {
     InitClient(InitClientData),
     Text(TextMessage),
     FileChunk(Chunk),

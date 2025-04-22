@@ -1,13 +1,14 @@
 use anyhow::Result;
 use chat_app::{
     client_lib::{
-        functions::{read_server, read_stdin, run_in_thread, write_server},
-        util::{errors::ThreadError, types::ThreadPurpuse},
+        app::ratatui,
+        functions::{read_server, write_server},
+        global_states::thread_logger::{get_thread_logger, get_thread_runner},
     },
     server_lib::util::config::{SERVER_HOSTNAME, SERVER_PORT},
-    shared_lib::{types::ClientToServerMsg, util_functions::get_addr},
+    shared_lib::{types::ClientServerMsg, util_functions::get_addr},
 };
-use std::{net::TcpStream, sync::mpsc, thread, time::Duration};
+use std::{io::stdout, net::TcpStream, sync::mpsc, thread, time::Duration};
 
 fn main() -> Result<()> {
     let addr = get_addr(SERVER_HOSTNAME, SERVER_PORT);
@@ -28,37 +29,20 @@ fn main() -> Result<()> {
 
     let write_tcp = read_tcp.try_clone()?;
 
-    let (tx_stdin_write, rx) = mpsc::channel::<ClientToServerMsg>();
+    let (tx_stdin_write, rx_stdin_write) = mpsc::channel::<ClientServerMsg>();
     let tx_init = tx_stdin_write.clone();
 
-    let (tx_thread_result, rx_thread_result) = mpsc::channel::<Result<String, ThreadError>>();
+    let th_runner = get_thread_runner();
 
-    run_in_thread(ThreadPurpuse::WriteServer, tx_thread_result.clone(), || {
-        write_server(write_tcp, rx)
-    });
+    th_runner.run("write server", || write_server(write_tcp, rx_stdin_write));
+    th_runner.run("read server", || read_server(read_tcp));
+    th_runner.run("ratatui", || ratatui());
+    // th.run_in_thread("stdin", || read_stdin(tx_stdin_write));
 
-    run_in_thread(ThreadPurpuse::ReadServer, tx_thread_result.clone(), || {
-        read_server(read_tcp)
-    });
+    tx_init.send(ClientServerMsg::InitClient)?;
 
-    run_in_thread(ThreadPurpuse::StdIn, tx_thread_result.clone(), || {
-        read_stdin(tx_stdin_write)
-    });
+    let th_logger = get_thread_logger();
+    th_logger.log_results(stdout(), false);
 
-    let init_msg = ClientToServerMsg::InitClient;
-    tx_init.send(init_msg)?;
-
-    loop {
-        match rx_thread_result.recv().unwrap() {
-            Ok(res) => println!("{}", res),
-            Err(err) => {
-                eprintln!("{}\n", err);
-                match err {
-                    ThreadError::ReadServer(err) => eprintln!("{}", err.backtrace()),
-                    ThreadError::StdIn(err) => eprintln!("{}", err.backtrace()),
-                    ThreadError::WriteServer(err) => eprintln!("{}", err.backtrace()),
-                }
-            }
-        };
-    }
+    Ok(())
 }

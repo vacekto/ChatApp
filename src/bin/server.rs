@@ -47,13 +47,3 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 }
-
-// async fn handle_connection(
-//     tcp: TcpStream,
-//     tx_client_manager: mpsc::Sender<ClientToManagerMessage>,
-//     tx_public_room: broadcast::Sender<Bytes>,
-// ) {
-//     let client = ClientTask::new(tcp, tx_client_manager, tx_public_room).await;
-
-//     client.run().await
-// }

@@ -21,7 +21,7 @@ use crate::{
     server_lib::util::config::log,
     shared_lib::{
         config::PUBLIC_ROOM_ID_STR,
-        types::{Channel, ClientToServerMsg, InitClientData, ServerToClientMsg},
+        types::{Channel, ClientServerMsg, InitClientData, ServerClientMsg},
     },
 };
 
@@ -124,14 +124,14 @@ impl ClientTask {
             Some(frame) => {
                 let data: Bytes = frame.map_err(|err| DataParsingError::from(err))?.into();
 
-                let message: ClientToServerMsg =
+                let message: ClientServerMsg =
                     bincode::deserialize(&data).map_err(|err| DataParsingError::from(err))?;
 
                 match message {
-                    ClientToServerMsg::Text(msg) => self.send_data(data, msg.to).await,
-                    ClientToServerMsg::FileChunk(c) => self.send_data(data, c.to).await,
-                    ClientToServerMsg::FileMetadata(m) => self.send_data(data, m.to).await,
-                    ClientToServerMsg::InitClient => self.init_client().await?,
+                    ClientServerMsg::Text(msg) => self.send_data(data, msg.to).await,
+                    ClientServerMsg::FileChunk(c) => self.send_data(data, c.to).await,
+                    ClientServerMsg::FileMetadata(m) => self.send_data(data, m.to).await,
+                    ClientServerMsg::InitClient => self.init_client().await?,
                 };
             }
             None => {
@@ -255,7 +255,7 @@ impl ClientTask {
         Ok(())
     }
     async fn init_client(&mut self) -> Result<(), DataParsingError> {
-        let init_data = ServerToClientMsg::InitClient(InitClientData { id: self.id });
+        let init_data = ServerClientMsg::InitClient(InitClientData { id: self.id });
 
         let encoded = bincode::serialize(&init_data)?;
         self.tcp_write.send(encoded.into()).await?;
