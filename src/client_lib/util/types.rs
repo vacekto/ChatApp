@@ -1,6 +1,18 @@
-use std::{fs::File, io::Write};
+use std::{collections::HashMap, fs::File};
 
-use anyhow::Result;
+use ratatui::crossterm::event::Event;
+use uuid::Uuid;
+
+use crate::shared_lib::types::{ServerClientMsg, TextMsg, User};
+
+#[derive(Debug, Default)]
+pub struct AppState {
+    pub id: Uuid,
+    pub username: String,
+    pub active_streams: HashMap<Uuid, ActiveStream>,
+    pub direct_messages: HashMap<Uuid, Vec<TextMsg>>,
+    pub room_messages: HashMap<Uuid, Vec<TextMsg>>,
+}
 
 #[derive(Debug)]
 pub struct ActiveStream {
@@ -8,9 +20,16 @@ pub struct ActiveStream {
     pub written: u64,
     pub size: u64,
 }
+pub enum ClientTuiMsg {
+    Text(ClientTextMessage),
+}
 
-impl ActiveStream {
-    pub async fn write_all(&mut self, c: &[u8]) -> Result<()> {
-        Ok(self.file_handle.write_all(c)?)
-    }
+pub enum TuiUpdate {
+    ServerMsg(ServerClientMsg),
+    Event(Event),
+}
+
+pub struct ClientTextMessage {
+    pub text: String,
+    pub from: User,
 }

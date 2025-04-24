@@ -1,4 +1,4 @@
-use std::{collections::HashMap, str::FromStr};
+use std::{collections::HashMap, str::FromStr, vec};
 
 use bytes::{Bytes, BytesMut};
 use futures::{SinkExt, StreamExt};
@@ -20,14 +20,18 @@ use uuid::Uuid;
 use crate::{
     server_lib::util::config::log,
     shared_lib::{
-        config::PUBLIC_ROOM_ID_STR,
-        types::{Channel, ClientServerMsg, InitClientData, ServerClientMsg},
+        config::{PUBLIC_ROOM_ID_STR, PUBLIC_ROOM_NAME},
+        types::{
+            Channel, ClientServerMsg, InitClientData, RoomChannel, RoomJoinNotification,
+            ServerClientMsg, User,
+        },
     },
 };
 
 use super::util::{
     config::{COMM_CLIENT_CAPACITY, DIRECT_CAPACITY, MANAGER_CLIENT_CAPACITY},
     errors::DataParsingError,
+    server_functions::{serialize_file_chunk, serialize_file_metadata, serialize_text_msg},
     types::{
         ChannelTransitPayload, ClientToManagerMessage, DirectChannelTransit, ManagerToClientMsg,
         MpscChannel,
@@ -35,6 +39,7 @@ use super::util::{
 };
 
 pub struct ClientTask {
+    username: String,
     id: Uuid,
     manager: MpscChannel<ClientToManagerMessage, ManagerToClientMsg>,
     comm: MpscChannel,
@@ -86,6 +91,7 @@ impl ClientTask {
         };
 
         Self {
+            username: "no username provided".into(),
             id,
             direct_channels,
             room_channels,
@@ -102,12 +108,12 @@ impl ClientTask {
             select! {
                 result = self.tcp_read.next() => if let Err(err)= self.handle_tcp_msg(result).await {
                     log(err.into(), None);
-                    todo!("unhandled error, disconnect and cleanup")
+                    todo!()
                 },
                 result = self.manager.rx.recv() => self.handle_manager_msg(result).await,
                 result = self.rx_room.recv() => if let Err(err)=self.handle_receive_data(result).await {
                     log(err.into(), None);
-                    todo!("unhandled error, disconnect and cleanup")
+                    todo!()
                 },
                 result = self.comm.rx.recv() => {
                     self.tcp_write.send(result.unwrap()).await.unwrap();
@@ -128,10 +134,18 @@ impl ClientTask {
                     bincode::deserialize(&data).map_err(|err| DataParsingError::from(err))?;
 
                 match message {
-                    ClientServerMsg::Text(msg) => self.send_data(data, msg.to).await,
-                    ClientServerMsg::FileChunk(c) => self.send_data(data, c.to).await,
-                    ClientServerMsg::FileMetadata(m) => self.send_data(data, m.to).await,
-                    ClientServerMsg::InitClient => self.init_client().await?,
+                    ClientServerMsg::Text(msg) => {
+                        self.send_data(serialize_text_msg(msg.clone())?, msg.to)
+                            .await
+                    }
+                    ClientServerMsg::FileChunk(c) => {
+                        self.send_data(serialize_file_chunk(c.clone())?, c.to).await
+                    }
+                    ClientServerMsg::FileMetadata(m) => {
+                        self.send_data(serialize_file_metadata(m.clone())?, m.to)
+                            .await
+                    }
+                    ClientServerMsg::InitClient(username) => self.init_client(username).await?,
                 };
             }
             None => {
@@ -163,7 +177,7 @@ impl ClientTask {
 
     async fn send_data(&mut self, data: Bytes, target: Channel) {
         match target {
-            Channel::Direct(target_id) => {
+            Channel::User(target_id) => {
                 let tx = self.direct_channels.get(&target_id);
 
                 let tx = match tx {
@@ -254,11 +268,37 @@ impl ClientTask {
         };
         Ok(())
     }
-    async fn init_client(&mut self) -> Result<(), DataParsingError> {
-        let init_data = ServerClientMsg::InitClient(InitClientData { id: self.id });
+    async fn init_client(&mut self, username: String) -> Result<(), DataParsingError> {
+        self.username = username;
+
+        let public_room = RoomChannel {
+            id: Uuid::from_str(PUBLIC_ROOM_ID_STR).unwrap(),
+            messages: vec![],
+            name: PUBLIC_ROOM_NAME.into(),
+            users: vec![],
+        };
+
+        let init_data = ServerClientMsg::InitClient(InitClientData {
+            id: self.id,
+            room_channels: vec![public_room],
+        });
 
         let encoded = bincode::serialize(&init_data)?;
         self.tcp_write.send(encoded.into()).await?;
+
+        for (id, tx_room) in self.room_channels.iter() {
+            let msg = ServerClientMsg::UserJoinedRoom(RoomJoinNotification {
+                room_id: id.clone(),
+                user: User {
+                    id: self.id,
+                    username: self.username.clone(),
+                },
+            });
+
+            let bytes = bincode::serialize(&msg)?.into();
+            tx_room.send(bytes).unwrap();
+        }
+
         Ok(())
     }
 }

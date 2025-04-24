@@ -78,24 +78,22 @@ impl ThreadLogger {
     {
         let rx = self.rx;
 
-        let result = rx
-            .recv()
-            .expect("no transmitter alive, costructor and all runners dropped");
+        while let Ok(result) = rx.recv() {
+            let msg = match result.res {
+                Ok(_) => format!("Thread {} returned successfully", result.thread_name),
+                Err(err) => format!(
+                    "Thread \"{}\" returned with an error: {}.  \nBacktrace:\n {}",
+                    result.thread_name,
+                    err,
+                    err.backtrace()
+                ),
+            };
 
-        let msg = match result.res {
-            Ok(_) => format!("Thread {} returned successfully", result.thread_name),
-            Err(err) => format!(
-                "Thread \"{}\" returned with an error: {}.  \nBacktrace:\n {}",
-                result.thread_name,
-                err,
-                err.backtrace()
-            ),
-        };
-
-        writer.write(msg.as_bytes()).expect("failed to write log");
-        writer.flush().unwrap();
-        if panic {
-            panic!("thread {} returned, panicking now.", result.thread_name);
+            writer.write(msg.as_bytes()).expect("failed to write log");
+            writer.flush().unwrap();
+            if panic {
+                panic!();
+            }
         }
     }
 }

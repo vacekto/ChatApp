@@ -1,6 +1,3 @@
-pub const SERVER_HOSTNAME: &str = "localhost";
-pub const SERVER_PORT: &str = "11111";
-
 // channel bounds
 pub const DIRECT_CAPACITY: usize = 30;
 pub const ROOM_CAPACITY: usize = 30;
