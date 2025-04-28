@@ -19,7 +19,7 @@ pub fn tcp_read(mut tcp: TcpStream, tx_read_tui: mpsc::Sender<ServerClientMsg>) 
     }
 }
 
-fn read_framed_tcp_msg(tcp: &mut TcpStream) -> Result<Vec<u8>> {
+pub fn read_framed_tcp_msg(tcp: &mut TcpStream) -> Result<Vec<u8>> {
     let mut size_buf = [0u8; TCP_FRAME_SIZE_HEADER];
 
     let mut tcp = BufReader::new(tcp);
@@ -31,8 +31,6 @@ fn read_framed_tcp_msg(tcp: &mut TcpStream) -> Result<Vec<u8>> {
         Err(e) => return Err(e).context("Error reading TCP size header"),
         _ => {}
     }
-
-    // let size = u32::from_be_bytes(size_buf) as usize;
 
     let size = ((size_buf[0] as usize) << 24)
         + ((size_buf[1] as usize) << 16)

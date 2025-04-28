@@ -14,7 +14,12 @@ pub fn tcp_write(mut tcp: TcpStream, rx: mpsc::Receiver<ClientServerMsg>) -> Res
 }
 fn frame_tcp_msg(msg: ClientServerMsg) -> Result<Vec<u8>> {
     let serialized = bincode::serialize(&msg).context("incorrect init data from server")?;
-    let size = serialized.len();
+    let framed = frame_data(&serialized);
+    Ok(framed)
+}
+
+pub fn frame_data(data: &[u8]) -> Vec<u8> {
+    let size = data.len();
 
     let mut framed: Vec<u8> = vec![
         (size >> 24) as u8,
@@ -23,7 +28,7 @@ fn frame_tcp_msg(msg: ClientServerMsg) -> Result<Vec<u8>> {
         size as u8,
     ];
 
-    framed.extend_from_slice(&serialized);
+    framed.extend_from_slice(&data);
 
-    Ok(framed)
+    framed
 }

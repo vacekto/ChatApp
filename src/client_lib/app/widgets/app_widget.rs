@@ -1,12 +1,17 @@
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Margin, Rect},
+    style::{Color, Style},
     symbols::border,
-    text::Line,
+    text::{Line, Span},
     widgets::{Block, Paragraph, Widget, Wrap},
 };
 
-use crate::client_lib::app::app::App;
+use crate::client_lib::{
+    app::app::App,
+    global_states::console_logger::log_to_console,
+    util::types::{ChannelKind, Contact},
+};
 
 impl Widget for &mut App {
     fn render(self, area: Rect, buf: &mut Buffer) {
@@ -19,7 +24,7 @@ impl Widget for &mut App {
         let title_contacts = Line::from(" Contacts ");
         let title_input = Line::from(" Input ");
 
-        let area_left = layout_main[0].inner(Margin {
+        let area_contacts = layout_main[0].inner(Margin {
             horizontal: 2,
             vertical: 3,
         });
@@ -51,38 +56,71 @@ impl Widget for &mut App {
 
         Block::bordered()
             .title(title_input)
-            // .title_bottom(instructions.centered())
             .border_set(border::PLAIN)
             .render(area_input, buf);
 
-        let messages_block = Block::bordered()
-            .title(title_msg)
-            // .title_bottom(instructions.centered())
-            .border_set(border::PLAIN);
-        // .render(area_messages, buf);
-
-        Block::bordered()
+        let contacts_block = Block::bordered()
             .title(title_contacts.centered())
-            // .title_bottom(instructions.centered())
-            .border_set(border::PLAIN)
-            .render(area_left, buf);
+            .border_set(border::PLAIN);
 
-        // let line = Line::from(my_msg);
-        // let t = self.messages.clone();
+        let mut contacts: Vec<Line> = vec![];
 
-        let channel = &self.active_channel.clone();
-        let messages = match self.get_messages(channel) {
-            Some(m) => m,
-            None => &vec![],
+        match self.active_channel.kind {
+            ChannelKind::Direct => {
+                for c in &self.direct_channels {
+                    let contact = Contact::Direct(c);
+                    let mut span = Span::from(&contact);
+                    match self.active_channel.id {
+                        Some(id) if id == c.user.id => {
+                            span.style = Style::default().fg(Color::White).bg(Color::DarkGray);
+                        }
+                        _ => {}
+                    }
+                    contacts.push(Line::from(span))
+                }
+            }
+            ChannelKind::Room => {
+                for c in &self.room_channels {
+                    let room = Contact::Room(c);
+                    let mut span = Span::from(&room);
+                    match self.active_channel.id {
+                        Some(id) if id == c.id => {
+                            log_to_console("selected");
+                            span.style = Style::new().fg(Color::White).bg(Color::DarkGray);
+                        }
+                        _ => {}
+                    }
+                    contacts.push(Line::from(span))
+                }
+            }
+        }
+
+        Paragraph::new(contacts)
+            .block(contacts_block)
+            .render(area_contacts, buf);
+
+        let messages_block = Block::bordered().title(title_msg).border_set(border::PLAIN);
+        let mut messages: Vec<Line> = vec![];
+        if let Some(id) = &self.active_channel.id {
+            messages = match &self.active_channel.kind {
+                ChannelKind::Direct => {
+                    match self.direct_channels.iter().find(|c| &c.user.id == id) {
+                        None => panic!("channel specified in active_channel not in state"),
+                        Some(c) => c.messages.iter().map(|m| m.into()).collect(),
+                    }
+                }
+                // Some(m) => m.iter().map(|m| m.into()).collect(),
+                ChannelKind::Room => match self.room_channels.iter().find(|c| &c.id == id) {
+                    None => panic!("channel specified in active_channel not in state"),
+                    Some(c) => c.messages.iter().map(|m| m.into()).collect(),
+                },
+            };
         };
-
-        let msg_widgets: Vec<Line> = messages.iter().map(|m| m.into()).collect();
-
-        self.text_area.render(area_input_inner, buf);
-
-        Paragraph::new(msg_widgets)
+        Paragraph::new(messages)
             .block(messages_block)
             .wrap(Wrap { trim: true })
             .render(area_messages, buf);
+
+        self.text_area.render(area_input_inner, buf);
     }
 }

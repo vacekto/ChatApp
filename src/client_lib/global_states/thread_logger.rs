@@ -8,18 +8,16 @@ use once_cell::sync::OnceCell;
 
 static GLOBAL: OnceCell<Mutex<ThreadConstructor>> = OnceCell::new();
 
+pub fn init_thread_logger() {
+    GLOBAL.set(Mutex::new(ThreadConstructor::new())).unwrap();
+}
+
 fn gen_constructor() -> std::sync::MutexGuard<'static, ThreadConstructor> {
-    match GLOBAL.get() {
-        Some(c) => c.lock().unwrap_or_else(|e| e.into_inner()),
-        None => {
-            GLOBAL.set(Mutex::new(ThreadConstructor::new())).unwrap();
-            GLOBAL
-                .get()
-                .unwrap()
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-        }
-    }
+    GLOBAL
+        .get()
+        .unwrap()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
 }
 
 pub fn get_thread_logger() -> ThreadLogger {
@@ -72,27 +70,26 @@ impl ThreadLogger {
         Self { rx }
     }
 
-    pub fn log_results<T>(self, mut writer: T, panic: bool)
-    where
-        T: std::io::Write,
-    {
+    pub fn log_results(self, return_after_err: bool) {
         let rx = self.rx;
 
         while let Ok(result) = rx.recv() {
             let msg = match result.res {
                 Ok(_) => format!("Thread {} returned successfully", result.thread_name),
-                Err(err) => format!(
-                    "Thread \"{}\" returned with an error: {}.  \nBacktrace:\n {}",
-                    result.thread_name,
-                    err,
-                    err.backtrace()
-                ),
+                Err(err) => {
+                    format!(
+                        "Thread \"{}\" returned with an error: {}.  \nBacktrace:\n {}",
+                        result.thread_name,
+                        err,
+                        err.backtrace()
+                    )
+                }
             };
 
-            writer.write(msg.as_bytes()).expect("failed to write log");
-            writer.flush().unwrap();
-            if panic {
-                panic!();
+            println!("{}", msg);
+
+            if return_after_err {
+                break;
             }
         }
     }

@@ -3,7 +3,7 @@ use ratatui::{
     text::{Line, Span},
 };
 
-use crate::shared_lib::types::{ChannelMsg, RoomJoinNotification, TextMsg};
+use crate::shared_lib::types::{ChannelMsg, TextMsg, User};
 
 impl From<&ChannelMsg> for Line<'static> {
     fn from(msg: &ChannelMsg) -> Self {
@@ -23,9 +23,9 @@ impl From<&TextMsg> for Line<'static> {
     }
 }
 
-impl From<&RoomJoinNotification> for Line<'static> {
-    fn from(not: &RoomJoinNotification) -> Self {
-        let username = not.user.username.clone();
+impl From<&User> for Line<'static> {
+    fn from(user: &User) -> Self {
+        let username = user.username.clone();
         let notification = Span::from(username + ": joined the room");
         Line::from(notification)
     }

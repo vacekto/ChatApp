@@ -1,2 +1,3 @@
 pub mod app_widget;
-pub mod tui_msg;
+pub mod channel_msg;
+pub mod contact;

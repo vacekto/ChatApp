@@ -2,6 +2,8 @@ use bytes::Bytes;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use uuid::Uuid;
 
+use crate::shared_lib::types::{RoomChannel, User};
+
 #[derive(Debug)]
 pub struct ChannelTransitPayload {
     pub tx_client_client: mpsc::Sender<Bytes>,
@@ -14,19 +16,19 @@ pub struct DirectChannelTransit {
     pub ack: oneshot::Sender<mpsc::Sender<Bytes>>,
 }
 
-pub enum ClientToManagerMessage {
-    Init(mpsc::Sender<ManagerToClientMsg>, Uuid),
+pub enum ClientManagerMsg {
+    Init(Client),
     ClientDropped(Uuid),
     EstablishDirectComm(DirectChannelTransit),
 }
 
-pub enum ManagerToClientMsg {
+pub enum ManagerClientMsg {
     EstablishDirectComm(DirectChannelTransit),
     JoinRoom(RoomChannelTransit),
 }
 
 pub struct RoomChannelTransit {
-    pub room_id: Uuid,
+    pub room: RoomChannel,
     pub tx: broadcast::Sender<Bytes>,
 }
 
@@ -37,4 +39,9 @@ pub struct MpscChannel<T = Bytes, K = Bytes> {
 pub struct BroadcastChannel<T = Bytes, K = Bytes> {
     pub tx: broadcast::Sender<T>,
     pub rx: broadcast::Receiver<K>,
+}
+
+pub struct Client {
+    pub user: User,
+    pub tx: mpsc::Sender<ManagerClientMsg>,
 }

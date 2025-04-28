@@ -1,16 +1,13 @@
-use std::str::FromStr;
-
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::client_lib::util::config::TCP_CHUNK_BUFFER_SIZE;
 
-use super::config::PUBLIC_ROOM_ID_STR;
-
 #[derive(Serialize, Deserialize, Debug)]
 pub struct InitClientData {
     pub id: Uuid,
-    pub room_channels: Vec<RoomChannel>,
+    pub username: String,
+    // pub room_channels: Vec<RoomChannel>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -23,12 +20,6 @@ pub struct User {
 pub enum Channel {
     Room(Uuid),
     User(Uuid),
-}
-
-impl Default for Channel {
-    fn default() -> Self {
-        Channel::Room(Uuid::from_str(PUBLIC_ROOM_ID_STR).unwrap())
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -49,8 +40,6 @@ pub struct Chunk {
 
 #[derive(Deserialize, Serialize, Debug)]
 pub enum ClientServerMsg {
-    // contains username
-    InitClient(String),
     Text(TextMsg),
     FileChunk(Chunk),
     FileMetadata(FileMetadata),
@@ -62,14 +51,8 @@ pub enum ServerClientMsg {
     Text(TextMsg),
     FileChunk(Chunk),
     FileMetadata(FileMetadata),
-    UserJoinedRoom(RoomJoinNotification),
-    JoinInv(RoomChannel),
-}
-
-#[derive(Deserialize, Serialize, Debug)]
-pub struct RoomJoinNotification {
-    pub room_id: Uuid,
-    pub user: User,
+    RoomUpdate(RoomChannel),
+    JoinRoom(RoomChannel),
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -80,7 +63,7 @@ pub struct FileMetadata {
     pub size: u64,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct RoomChannel {
     pub id: Uuid,
     pub name: String,
@@ -94,8 +77,13 @@ pub struct DirectChannel {
     pub messages: Vec<ChannelMsg>,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub enum ChannelMsg {
     TextMsg(TextMsg),
-    JoinNotification(RoomJoinNotification),
+    JoinNotification(User),
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct AuthData {
+    pub username: String,
 }
