@@ -30,7 +30,7 @@ use super::util::{
 };
 
 pub struct ClientTask {
-    username: String,
+    _username: String,
     id: Uuid,
     manager: MpscChannel<ClientManagerMsg, ManagerClientMsg>,
     comm: MpscChannel,
@@ -82,7 +82,7 @@ impl ClientTask {
         };
 
         Self {
-            username: init_data.username,
+            _username: init_data.username,
             id,
             direct_channels,
             room_channels,

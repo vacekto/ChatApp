@@ -10,7 +10,7 @@ use std::{
 pub const CONSOLE_LOG_FILE_PATH: &str = "log.txt";
 static GLOBAL: OnceCell<Mutex<ConsoleLogger>> = OnceCell::new();
 
-pub fn log_to_console(msg: &str) {
+pub fn console_log(msg: &str) {
     #[cfg(debug_assertions)]
     log(msg)
 }
@@ -29,8 +29,10 @@ fn log(msg: &str) {
 
 #[cfg(debug_assertions)]
 pub fn close_console_logger() {
-    let mut logger = GLOBAL.get().unwrap().lock().unwrap();
-    logger.close_terminal();
+    if let Some(logger) = GLOBAL.get() {
+        let mut logger = logger.lock().unwrap();
+        logger.close_terminal();
+    };
 }
 
 #[derive(Debug)]

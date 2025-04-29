@@ -9,7 +9,6 @@ use ratatui::{
 
 use crate::client_lib::{
     app::app::App,
-    global_states::console_logger::log_to_console,
     util::types::{ChannelKind, Contact},
 };
 
@@ -21,7 +20,11 @@ impl Widget for &mut App {
             .split(area);
 
         let title_msg = Line::from(" Messages ");
-        let title_contacts = Line::from(" Contacts ");
+        let title_contacts = match self.selected_channel.kind {
+            ChannelKind::Direct => Line::from(" Users "),
+            ChannelKind::Room => Line::from(" Rooms "),
+        };
+
         let title_input = Line::from(" Input ");
 
         let area_contacts = layout_main[0].inner(Margin {
@@ -65,12 +68,12 @@ impl Widget for &mut App {
 
         let mut contacts: Vec<Line> = vec![];
 
-        match self.active_channel.kind {
+        match self.selected_channel.kind {
             ChannelKind::Direct => {
                 for c in &self.direct_channels {
                     let contact = Contact::Direct(c);
                     let mut span = Span::from(&contact);
-                    match self.active_channel.id {
+                    match self.selected_channel.id {
                         Some(id) if id == c.user.id => {
                             span.style = Style::default().fg(Color::White).bg(Color::DarkGray);
                         }
@@ -83,9 +86,8 @@ impl Widget for &mut App {
                 for c in &self.room_channels {
                     let room = Contact::Room(c);
                     let mut span = Span::from(&room);
-                    match self.active_channel.id {
+                    match self.selected_channel.id {
                         Some(id) if id == c.id => {
-                            log_to_console("selected");
                             span.style = Style::new().fg(Color::White).bg(Color::DarkGray);
                         }
                         _ => {}
@@ -101,17 +103,17 @@ impl Widget for &mut App {
 
         let messages_block = Block::bordered().title(title_msg).border_set(border::PLAIN);
         let mut messages: Vec<Line> = vec![];
-        if let Some(id) = &self.active_channel.id {
-            messages = match &self.active_channel.kind {
+        if let Some(id) = &self.selected_channel.id {
+            messages = match &self.selected_channel.kind {
                 ChannelKind::Direct => {
                     match self.direct_channels.iter().find(|c| &c.user.id == id) {
-                        None => panic!("channel specified in active_channel not in state"),
+                        None => vec![],
                         Some(c) => c.messages.iter().map(|m| m.into()).collect(),
                     }
                 }
                 // Some(m) => m.iter().map(|m| m.into()).collect(),
                 ChannelKind::Room => match self.room_channels.iter().find(|c| &c.id == id) {
-                    None => panic!("channel specified in active_channel not in state"),
+                    None => vec![],
                     Some(c) => c.messages.iter().map(|m| m.into()).collect(),
                 },
             };

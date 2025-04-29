@@ -1,6 +1,0 @@
-- move app_state from oneCell to App field
-- TUI messages: display text messages 
-- TUI input: send text message to public room
-- add username, handle client disconnect/connect
-- TUI: display connected users along with public room, select channel
-- handle server channel errors

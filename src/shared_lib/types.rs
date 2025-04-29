@@ -16,7 +16,7 @@ pub struct User {
     pub id: Uuid,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum Channel {
     Room(Uuid),
     User(Uuid),
@@ -47,7 +47,6 @@ pub enum ClientServerMsg {
 
 #[derive(Deserialize, Serialize, Debug)]
 pub enum ServerClientMsg {
-    InitClient(InitClientData),
     Text(TextMsg),
     FileChunk(Chunk),
     FileMetadata(FileMetadata),
@@ -71,7 +70,7 @@ pub struct RoomChannel {
     pub users: Vec<User>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct DirectChannel {
     pub user: User,
     pub messages: Vec<ChannelMsg>,

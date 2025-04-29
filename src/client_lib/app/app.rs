@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::{
     client_lib::{
-        global_states::{console_logger::log_to_console, thread_logger::get_thread_runner},
+        global_states::thread_logger::get_thread_runner,
         util::types::{ActiveChannel, ActiveStream, ChannelKind, TuiUpdate},
     },
     shared_lib::{
@@ -32,7 +32,8 @@ pub struct App {
     pub tx_tui_write: mpsc::Sender<ClientServerMsg>,
     pub room_channels: Vec<RoomChannel>,
     pub direct_channels: Vec<DirectChannel>,
-    pub active_channel: ActiveChannel,
+    pub selected_channel: ActiveChannel,
+    // pub active_channel: ActiveChannel,
     pub _active_streams: HashMap<Uuid, ActiveStream>,
 }
 
@@ -44,7 +45,7 @@ impl App {
             exit: false,
             text_area: TextArea::default(),
             tx_tui_write,
-            active_channel: ActiveChannel {
+            selected_channel: ActiveChannel {
                 id: None,
                 kind: ChannelKind::Room,
             },
@@ -105,7 +106,6 @@ impl App {
         match msg {
             ServerClientMsg::FileChunk(chunk) => handle_file_chunk(chunk)?,
             ServerClientMsg::FileMetadata(meta) => handle_file_metadata(meta)?,
-            ServerClientMsg::InitClient(init) => self.init_app_state(init),
             ServerClientMsg::Text(msg) => self.handle_text_message(msg),
             ServerClientMsg::RoomUpdate(room) => self.handle_room_update(room),
             ServerClientMsg::JoinRoom(room) => self.handle_room_invitation(room),
@@ -114,58 +114,80 @@ impl App {
         Ok(())
     }
 
-    fn init_app_state(&mut self, init: InitClientData) {
-        self.id = init.id;
-        // self.room_channels = init.room_channels;
-
-        log_to_console("id arrived");
-    }
-
-    fn handle_room_invitation(&mut self, room: RoomChannel) {
+    fn handle_room_invitation(&mut self, mut room: RoomChannel) {
         if room.id == Uuid::from_str(PUBLIC_ROOM_ID).unwrap() {
-            for user in &room.users {
-                log_to_console(&format!("{}, {}, {}", self.id, user.id, self.id == user.id));
-                let is_in_contacts = self.direct_channels.iter().any(|c| c.user.id == user.id);
-                if !is_in_contacts && user.id != self.id {
-                    let new_channel = DirectChannel {
-                        messages: vec![],
-                        user: (*user).clone(),
-                    };
+            if let Some(i) = room.users.iter().position(|u| u.id == self.id) {
+                room.users.remove(i);
+            };
 
-                    self.direct_channels.push(new_channel);
-                }
+            for user in &room.users {
+                self.direct_channels.push(DirectChannel {
+                    messages: vec![],
+                    user: (*user).clone(),
+                });
             }
         };
 
         self.room_channels.push(room);
     }
 
-    fn handle_room_update(&mut self, room: RoomChannel) {
+    fn handle_room_update(&mut self, mut room: RoomChannel) {
         if room.id == Uuid::from_str(PUBLIC_ROOM_ID).unwrap() {
-            for user in &room.users {
-                let is_in_contacts = self.direct_channels.iter().any(|c| c.user.id == user.id);
-                if !is_in_contacts && user.id != self.id {
-                    let new_channel = DirectChannel {
-                        messages: vec![],
-                        user: (*user).clone(),
-                    };
+            if let Some(i) = room.users.iter().position(|u| u.id == self.id) {
+                room.users.remove(i);
+            };
 
-                    self.direct_channels.push(new_channel);
+            let mut direct_channels_update: Vec<DirectChannel> = vec![];
+
+            for user in room.users.clone() {
+                if let Some(i) = self
+                    .direct_channels
+                    .iter()
+                    .position(|c| c.user.id == user.id)
+                {
+                    direct_channels_update.push(self.direct_channels[i].clone());
+                } else {
+                    direct_channels_update.push(DirectChannel {
+                        messages: vec![],
+                        user: (user).clone(),
+                    });
+                };
+            }
+
+            self.direct_channels = direct_channels_update;
+
+            match (&self.selected_channel.kind, self.selected_channel.id) {
+                (ChannelKind::Direct, Some(id)) => {
+                    if !self.direct_channels.iter().any(|c| c.user.id == id) {
+                        self.selected_channel.id = None;
+                    }
                 }
+                (ChannelKind::Room, Some(id)) => {
+                    if !self.room_channels.iter().any(|c| c.id == id) {
+                        self.selected_channel.id = None;
+                    }
+                }
+                _ => {}
             }
         };
 
-        let res = self.room_channels.iter().position(|c| c.id == room.id);
-        if let Some(index) = res {
+        if let Some(index) = self.room_channels.iter().position(|c| c.id == room.id) {
             self.room_channels[index] = room;
-        }
+        };
     }
 
     pub fn handle_text_message(&mut self, msg: TextMsg) {
-        let messages = self.get_messages(&msg.to);
-        if let Some(m) = messages {
-            m.push(ChannelMsg::TextMsg(msg));
-            return;
+        match msg.to {
+            Channel::Room(id) => {
+                if let Some(messages) = self.get_channel_messages(id) {
+                    messages.push(ChannelMsg::TextMsg(msg))
+                };
+            }
+            Channel::User(_) => {
+                if let Some(messages) = self.get_direct_messages(msg.from.id) {
+                    messages.push(ChannelMsg::TextMsg(msg));
+                }
+            }
         }
     }
 
@@ -173,22 +195,19 @@ impl App {
         frame.render_widget(self, frame.area());
     }
 
-    pub fn get_messages(&mut self, channel: &Channel) -> Option<&mut Vec<ChannelMsg>> {
-        match channel {
-            Channel::User(id) => {
-                let res = self.direct_channels.iter_mut().find(|c| &c.user.id == id);
-                match res {
-                    Some(c) => Some(&mut c.messages),
-                    None => None,
-                }
-            }
-            Channel::Room(id) => {
-                let res = self.room_channels.iter_mut().find(|c| &c.id == id);
-                match res {
-                    Some(c) => Some(&mut c.messages),
-                    None => None,
-                }
-            }
+    fn get_direct_messages(&mut self, id: Uuid) -> Option<&mut Vec<ChannelMsg>> {
+        let res = self.direct_channels.iter_mut().find(|c| c.user.id == id);
+        match res {
+            Some(c) => Some(&mut c.messages),
+            None => None,
+        }
+    }
+
+    fn get_channel_messages(&mut self, id: Uuid) -> Option<&mut Vec<ChannelMsg>> {
+        let res = self.room_channels.iter_mut().find(|c| c.id == id);
+        match res {
+            Some(c) => Some(&mut c.messages),
+            None => None,
         }
     }
 
@@ -221,7 +240,7 @@ impl App {
     }
 
     fn switch_contacts(&mut self) {
-        let new_kind = match self.active_channel.kind {
+        let new_kind = match self.selected_channel.kind {
             ChannelKind::Direct => ChannelKind::Room,
             ChannelKind::Room => ChannelKind::Direct,
         };
@@ -243,12 +262,12 @@ impl App {
             }
         };
 
-        self.active_channel.id = new_id;
-        self.active_channel.kind = new_kind;
+        self.selected_channel.id = new_id;
+        self.selected_channel.kind = new_kind;
     }
 
     fn move_active_channel_up(&mut self) {
-        match (&self.active_channel.kind, self.active_channel.id) {
+        match (&self.selected_channel.kind, self.selected_channel.id) {
             (ChannelKind::Direct, Some(id)) => {
                 let index = self.direct_channels.iter().position(|c| c.user.id == id);
                 match index {
@@ -257,7 +276,7 @@ impl App {
                         if i == 0 {
                             return;
                         }
-                        self.active_channel.id = Some(self.direct_channels[i - 1].user.id)
+                        self.selected_channel.id = Some(self.direct_channels[i - 1].user.id)
                     }
                 }
             }
@@ -269,7 +288,7 @@ impl App {
                         if i == 0 {
                             return;
                         }
-                        self.active_channel.id = Some(self.room_channels[i - 1].id)
+                        self.selected_channel.id = Some(self.room_channels[i - 1].id)
                     }
                 }
             }
@@ -277,19 +296,19 @@ impl App {
                 if self.direct_channels.len() == 0 {
                     return;
                 }
-                self.active_channel.id = Some(self.direct_channels[0].user.id);
+                self.selected_channel.id = Some(self.direct_channels[0].user.id);
             }
             (ChannelKind::Room, None) => {
                 if self.room_channels.len() == 0 {
                     return;
                 }
-                self.active_channel.id = Some(self.room_channels[0].id);
+                self.selected_channel.id = Some(self.room_channels[0].id);
             }
         }
     }
 
     fn move_active_channel_down(&mut self) {
-        match (&self.active_channel.kind, self.active_channel.id) {
+        match (&self.selected_channel.kind, self.selected_channel.id) {
             (ChannelKind::Direct, Some(id)) => {
                 let index = self.direct_channels.iter().position(|c| c.user.id == id);
                 match index {
@@ -298,7 +317,7 @@ impl App {
                         if i == self.direct_channels.len() - 1 {
                             return;
                         }
-                        self.active_channel.id = Some(self.direct_channels[i + 1].user.id)
+                        self.selected_channel.id = Some(self.direct_channels[i + 1].user.id)
                     }
                 }
             }
@@ -310,7 +329,7 @@ impl App {
                         if i == self.room_channels.len() - 1 {
                             return;
                         }
-                        self.active_channel.id = Some(self.room_channels[i + 1].id)
+                        self.selected_channel.id = Some(self.room_channels[i + 1].id)
                     }
                 }
             }
@@ -318,28 +337,41 @@ impl App {
                 if self.direct_channels.len() == 0 {
                     return;
                 }
-                self.active_channel.id = Some(self.direct_channels[0].user.id);
+                self.selected_channel.id = Some(self.direct_channels[0].user.id);
             }
             (ChannelKind::Room, None) => {
                 if self.room_channels.len() == 0 {
                     return;
                 }
-                self.active_channel.id = Some(self.room_channels[0].id);
+                self.selected_channel.id = Some(self.room_channels[0].id);
             }
         }
     }
 
     fn send_message(&mut self) -> Result<()> {
+        let id = match self.selected_channel.id {
+            None => return Ok(()),
+            Some(id) => id,
+        };
         let text = self.text_area.lines().join("\n");
 
-        let msg = ClientServerMsg::Text(TextMsg {
-            text,
-            from: User {
-                username: self.username.clone(),
-                id: self.id,
-            },
-            to: Channel::Room(Uuid::from_str(PUBLIC_ROOM_ID)?),
-        });
+        let from = User {
+            username: self.username.clone(),
+            id: self.id,
+        };
+
+        let to = match self.selected_channel.kind {
+            ChannelKind::Direct => Channel::User(id),
+            ChannelKind::Room => Channel::Room(id),
+        };
+
+        let msg = TextMsg { text, from, to };
+
+        if let Some(messages) = self.get_direct_messages(id) {
+            messages.push(ChannelMsg::TextMsg(msg.clone()));
+        };
+
+        let msg = ClientServerMsg::Text(msg);
 
         self.tx_tui_write.send(msg)?;
         self.text_area = TextArea::default();

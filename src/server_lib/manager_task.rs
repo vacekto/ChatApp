@@ -39,10 +39,6 @@ pub fn create_manager_task(mut rx_client_manager: mpsc::Receiver<ClientManagerMs
                     client.tx.send(msg).await.unwrap();
 
                     clients.insert(client.user.id, client);
-
-                    // let msg = ServerClientMsg::RoomUpdate(public_room.clone());
-                    // let serialized = bincode::serialize(&msg).unwrap();
-                    // tx_public_room.send(serialized.into()).unwrap();
                 }
 
                 ClientManagerMsg::ClientDropped(id) => {
@@ -50,7 +46,7 @@ pub fn create_manager_task(mut rx_client_manager: mpsc::Receiver<ClientManagerMs
 
                     if let Some(pos) = public_room.users.iter().position(|u| u.id == id) {
                         public_room.users.remove(pos);
-                    }
+                    };
 
                     let msg = ServerClientMsg::RoomUpdate(public_room.clone());
                     let serialized = bincode::serialize(&msg).unwrap();
@@ -78,14 +74,3 @@ pub fn create_manager_task(mut rx_client_manager: mpsc::Receiver<ClientManagerMs
         }
     });
 }
-
-// fn create_room_comm_task(
-//     mut rx_client_room: broadcast::Receiver<Bytes>,
-//     tx_comm_client: mpsc::Sender<Bytes>,
-// ) {
-//     task::spawn(async move {
-//         while let Ok(data) = rx_client_room.recv().await {
-//             tx_comm_client.send(data).await.unwrap();
-//         }
-//     });
-// }
