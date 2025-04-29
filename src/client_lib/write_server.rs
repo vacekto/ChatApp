@@ -2,9 +2,9 @@ use std::{io::Write, net::TcpStream, sync::mpsc};
 
 use anyhow::{Context, Result};
 
-use crate::shared_lib::types::ClientServerMsg;
+use crate::shared_lib::types::TuiServerMsg;
 
-pub fn tcp_write(mut tcp: TcpStream, rx: mpsc::Receiver<ClientServerMsg>) -> Result<()> {
+pub fn tcp_write(mut tcp: TcpStream, rx: mpsc::Receiver<TuiServerMsg>) -> Result<()> {
     while let Ok(msg) = rx.recv() {
         let framed = frame_tcp_msg(msg)?;
         tcp.write_all(&framed)?;
@@ -12,7 +12,7 @@ pub fn tcp_write(mut tcp: TcpStream, rx: mpsc::Receiver<ClientServerMsg>) -> Res
 
     Ok(())
 }
-fn frame_tcp_msg(msg: ClientServerMsg) -> Result<Vec<u8>> {
+fn frame_tcp_msg(msg: TuiServerMsg) -> Result<Vec<u8>> {
     let serialized = bincode::serialize(&msg).context("incorrect init data from server")?;
     let framed = frame_data(&serialized);
     Ok(framed)

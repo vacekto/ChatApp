@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use bytes::Bytes;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -6,9 +7,10 @@ use tokio::task;
 use uuid::Uuid;
 
 use crate::shared_lib::config::{PUBLIC_ROOM_ID, PUBLIC_ROOM_NAME};
-use crate::shared_lib::types::{RoomChannel, ServerClientMsg};
+use crate::shared_lib::types::{RoomChannel, ServerTuiMsg};
 
-use super::util::config::ROOM_CAPACITY;
+use super::util::config::{log, ROOM_CAPACITY};
+use super::util::errors::DataParsingError;
 use super::util::types::{
     Client, ClientManagerMsg, DirectChannelTransit, ManagerClientMsg, RoomChannelTransit,
 };
@@ -27,7 +29,11 @@ pub fn create_manager_task(mut rx_client_manager: mpsc::Receiver<ClientManagerMs
         let (tx_public_room, _) = broadcast::channel::<Bytes>(ROOM_CAPACITY);
 
         loop {
-            match rx_client_manager.recv().await.unwrap() {
+            let msg = rx_client_manager.recv().await.expect(
+                "all tx_client_manager got dropped, should be at saved and cloned from server.rs",
+            );
+
+            match msg {
                 ClientManagerMsg::Init(client) => {
                     public_room.users.push(client.user.clone());
 
@@ -35,8 +41,12 @@ pub fn create_manager_task(mut rx_client_manager: mpsc::Receiver<ClientManagerMs
                         room: public_room.clone(),
                         tx: tx_public_room.clone(),
                     };
+
                     let msg = ManagerClientMsg::JoinRoom(room_transit);
-                    client.tx.send(msg).await.unwrap();
+
+                    if let Err(err) = client.tx.send(msg).await {
+                        log(err.into(), Some("initiating client"));
+                    };
 
                     clients.insert(client.user.id, client);
                 }
@@ -48,13 +58,29 @@ pub fn create_manager_task(mut rx_client_manager: mpsc::Receiver<ClientManagerMs
                         public_room.users.remove(pos);
                     };
 
-                    let msg = ServerClientMsg::RoomUpdate(public_room.clone());
-                    let serialized = bincode::serialize(&msg).unwrap();
+                    let msg = ServerTuiMsg::RoomUpdate(public_room.clone());
+                    let serialized = match bincode::serialize(&msg) {
+                        Ok(v) => v,
+                        Err(err) => {
+                            log(
+                                DataParsingError::from(err).into(),
+                                Some("ServerTuiMsg bincode parsing"),
+                            );
+                            continue;
+                        }
+                    };
+
                     tx_public_room.send(serialized.into()).unwrap();
                 }
 
                 ClientManagerMsg::EstablishDirectComm(c) => {
-                    let client = clients.get(&c.payload.to).unwrap();
+                    let client = match clients.get(&c.payload.to) {
+                        Some(c) => c,
+                        None => {
+                            log(anyhow!("Client not found in clients list"), None);
+                            continue;
+                        }
+                    };
                     let (tx_ack, rx_ack) = oneshot::channel::<mpsc::Sender<Bytes>>();
 
                     let transit = DirectChannelTransit {
@@ -62,13 +88,25 @@ pub fn create_manager_task(mut rx_client_manager: mpsc::Receiver<ClientManagerMs
                         payload: c.payload,
                     };
 
-                    client
+                    if let Err(err) = client
                         .tx
                         .send(ManagerClientMsg::EstablishDirectComm(transit))
                         .await
-                        .unwrap();
-                    let tx_cleint_client = rx_ack.await.unwrap();
-                    c.ack.send(tx_cleint_client).unwrap();
+                    {
+                        log(err.into(), Some("establishing direct communication"));
+                    };
+
+                    let tx_cleint_client = match rx_ack.await {
+                        Ok(v) => v,
+                        Err(err) => {
+                            log(err.into(), Some("establishing direct communication"));
+                            continue;
+                        }
+                    };
+
+                    if c.ack.send(tx_cleint_client).is_err() {
+                        log(anyhow!("establishing direct communication"), None);
+                    };
                 }
             };
         }

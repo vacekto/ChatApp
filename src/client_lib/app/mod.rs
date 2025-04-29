@@ -8,11 +8,11 @@ use std::sync::mpsc::{self, Receiver};
 use anyhow::Result;
 use app::App;
 
-use crate::shared_lib::types::{ClientServerMsg, InitClientData, ServerClientMsg};
+use crate::shared_lib::types::{InitClientData, ServerTuiMsg, TuiServerMsg};
 
 pub fn ratatui(
-    rx_read_tui: Receiver<ServerClientMsg>,
-    tx_tui_write: mpsc::Sender<ClientServerMsg>,
+    rx_read_tui: Receiver<ServerTuiMsg>,
+    tx_tui_write: mpsc::Sender<TuiServerMsg>,
     init_data: InitClientData,
 ) -> Result<()> {
     let mut terminal = ratatui::init();

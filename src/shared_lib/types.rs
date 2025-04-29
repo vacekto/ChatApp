@@ -39,14 +39,14 @@ pub struct Chunk {
 }
 
 #[derive(Deserialize, Serialize, Debug)]
-pub enum ClientServerMsg {
+pub enum TuiServerMsg {
     Text(TextMsg),
     FileChunk(Chunk),
     FileMetadata(FileMetadata),
 }
 
 #[derive(Deserialize, Serialize, Debug)]
-pub enum ServerClientMsg {
+pub enum ServerTuiMsg {
     Text(TextMsg),
     FileChunk(Chunk),
     FileMetadata(FileMetadata),

@@ -12,7 +12,7 @@ use chat_app::{
     },
     shared_lib::{
         config::SERVER_ADDR,
-        types::{ClientServerMsg, ServerClientMsg},
+        types::{TuiServerMsg, ServerTuiMsg},
     },
 };
 use std::{env, net::TcpStream, sync::mpsc, thread, time::Duration};
@@ -40,8 +40,8 @@ fn main() -> Result<()> {
 
     let write_tcp = read_tcp.try_clone()?;
 
-    let (tx_tui_write, rx_tui_write) = mpsc::channel::<ClientServerMsg>();
-    let (tx_read_tui, rx_read_tui) = mpsc::channel::<ServerClientMsg>();
+    let (tx_tui_write, rx_tui_write) = mpsc::channel::<TuiServerMsg>();
+    let (tx_read_tui, rx_read_tui) = mpsc::channel::<ServerTuiMsg>();
 
     let init_data = handle_auth(write_tcp.try_clone()?, username)?;
 

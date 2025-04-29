@@ -16,8 +16,8 @@ use crate::{
     shared_lib::{
         config::PUBLIC_ROOM_ID,
         types::{
-            Channel, ChannelMsg, ClientServerMsg, DirectChannel, InitClientData, RoomChannel,
-            ServerClientMsg, TextMsg, User,
+            Channel, ChannelMsg, TuiServerMsg, DirectChannel, InitClientData, RoomChannel,
+            ServerTuiMsg, TextMsg, User,
         },
     },
 };
@@ -29,7 +29,7 @@ pub struct App {
     pub id: Uuid,
     pub exit: bool,
     pub text_area: TextArea<'static>,
-    pub tx_tui_write: mpsc::Sender<ClientServerMsg>,
+    pub tx_tui_write: mpsc::Sender<TuiServerMsg>,
     pub room_channels: Vec<RoomChannel>,
     pub direct_channels: Vec<DirectChannel>,
     pub selected_channel: ActiveChannel,
@@ -38,7 +38,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(tx_tui_write: mpsc::Sender<ClientServerMsg>, init_data: InitClientData) -> Self {
+    pub fn new(tx_tui_write: mpsc::Sender<TuiServerMsg>, init_data: InitClientData) -> Self {
         App {
             username: init_data.username,
             id: init_data.id,
@@ -58,7 +58,7 @@ impl App {
     pub fn run(
         &mut self,
         terminal: &mut DefaultTerminal,
-        rx_client_tui: mpsc::Receiver<ServerClientMsg>,
+        rx_client_tui: mpsc::Receiver<ServerTuiMsg>,
     ) -> Result<()> {
         let (tx_tui, rx_tui) = mpsc::channel::<TuiUpdate>();
 
@@ -87,7 +87,7 @@ impl App {
 
     fn listen_for_server(
         &self,
-        rx_server_tui: mpsc::Receiver<ServerClientMsg>,
+        rx_server_tui: mpsc::Receiver<ServerTuiMsg>,
         tx_tui: mpsc::Sender<TuiUpdate>,
     ) -> Result<()> {
         let th_runner = get_thread_runner();
@@ -102,13 +102,13 @@ impl App {
         Ok(())
     }
 
-    fn handle_server_msg(&mut self, msg: ServerClientMsg) -> Result<()> {
+    fn handle_server_msg(&mut self, msg: ServerTuiMsg) -> Result<()> {
         match msg {
-            ServerClientMsg::FileChunk(chunk) => handle_file_chunk(chunk)?,
-            ServerClientMsg::FileMetadata(meta) => handle_file_metadata(meta)?,
-            ServerClientMsg::Text(msg) => self.handle_text_message(msg),
-            ServerClientMsg::RoomUpdate(room) => self.handle_room_update(room),
-            ServerClientMsg::JoinRoom(room) => self.handle_room_invitation(room),
+            ServerTuiMsg::FileChunk(chunk) => handle_file_chunk(chunk)?,
+            ServerTuiMsg::FileMetadata(meta) => handle_file_metadata(meta)?,
+            ServerTuiMsg::Text(msg) => self.handle_text_message(msg),
+            ServerTuiMsg::RoomUpdate(room) => self.handle_room_update(room),
+            ServerTuiMsg::JoinRoom(room) => self.handle_room_invitation(room),
         };
 
         Ok(())
@@ -371,7 +371,7 @@ impl App {
             messages.push(ChannelMsg::TextMsg(msg.clone()));
         };
 
-        let msg = ClientServerMsg::Text(msg);
+        let msg = TuiServerMsg::Text(msg);
 
         self.tx_tui_write.send(msg)?;
         self.text_area = TextArea::default();

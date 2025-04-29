@@ -3,7 +3,7 @@ use std::{collections::HashMap, fs::File};
 use ratatui::crossterm::event::Event;
 use uuid::Uuid;
 
-use crate::shared_lib::types::{DirectChannel, RoomChannel, ServerClientMsg, TextMsg, User};
+use crate::shared_lib::types::{DirectChannel, RoomChannel, ServerTuiMsg, TextMsg, User};
 
 #[derive(Debug, Default)]
 pub struct AppState {
@@ -25,7 +25,7 @@ pub enum ClientTuiMsg {
 }
 
 pub enum TuiUpdate {
-    ServerMsg(ServerClientMsg),
+    ServerMsg(ServerTuiMsg),
     Event(Event),
 }
 

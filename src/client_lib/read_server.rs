@@ -6,14 +6,14 @@ use std::{
 
 use anyhow::{Context, Result};
 
-use crate::shared_lib::types::ServerClientMsg;
+use crate::shared_lib::types::ServerTuiMsg;
 
 use super::util::config::TCP_FRAME_SIZE_HEADER;
 
-pub fn tcp_read(mut tcp: TcpStream, tx_read_tui: mpsc::Sender<ServerClientMsg>) -> Result<()> {
+pub fn tcp_read(mut tcp: TcpStream, tx_read_tui: mpsc::Sender<ServerTuiMsg>) -> Result<()> {
     loop {
         let bytes = read_framed_tcp_msg(&mut tcp)?;
-        let msg: ServerClientMsg = bincode::deserialize(&bytes)?;
+        let msg: ServerTuiMsg = bincode::deserialize(&bytes)?;
 
         tx_read_tui.send(msg)?;
     }

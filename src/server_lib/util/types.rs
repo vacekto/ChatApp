@@ -32,13 +32,18 @@ pub struct RoomChannelTransit {
     pub tx: broadcast::Sender<Bytes>,
 }
 
-pub struct MpscChannel<T = Bytes, K = Bytes> {
+pub struct MpscChannel<T = Bytes, R = Bytes> {
     pub tx: mpsc::Sender<T>,
-    pub rx: mpsc::Receiver<K>,
+    pub rx: mpsc::Receiver<R>,
 }
-pub struct BroadcastChannel<T = Bytes, K = Bytes> {
+pub struct BroadcastChannel<T = Bytes, R = Bytes> {
     pub tx: broadcast::Sender<T>,
-    pub rx: broadcast::Receiver<K>,
+    pub rx: broadcast::Receiver<R>,
+}
+
+pub struct OneShotChannel<T> {
+    pub tx: oneshot::Sender<T>,
+    pub rx: oneshot::Receiver<T>,
 }
 
 pub struct Client {
