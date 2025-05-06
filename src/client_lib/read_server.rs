@@ -1,21 +1,21 @@
+use super::{global_states::app_state::get_global_state, util::config::TCP_FRAME_SIZE_HEADER};
+use crate::shared_lib::types::ServerTuiMsg;
+use anyhow::{Context, Result};
 use std::{
     io::{BufReader, ErrorKind, Read},
     net::TcpStream,
-    sync::mpsc,
 };
 
-use anyhow::{Context, Result};
+pub fn tcp_read() -> Result<()> {
+    let state = get_global_state();
+    let mut tcp = state.tcp.try_clone().unwrap();
+    let tx_tcp_tui = state.tcp_tui_channel.tx.clone();
+    drop(state);
 
-use crate::shared_lib::types::ServerTuiMsg;
-
-use super::util::config::TCP_FRAME_SIZE_HEADER;
-
-pub fn tcp_read(mut tcp: TcpStream, tx_read_tui: mpsc::Sender<ServerTuiMsg>) -> Result<()> {
     loop {
         let bytes = read_framed_tcp_msg(&mut tcp)?;
         let msg: ServerTuiMsg = bincode::deserialize(&bytes)?;
-
-        tx_read_tui.send(msg)?;
+        tx_tcp_tui.send(msg)?;
     }
 }
 
@@ -26,10 +26,10 @@ pub fn read_framed_tcp_msg(tcp: &mut TcpStream) -> Result<Vec<u8>> {
 
     match tcp.read_exact(&mut size_buf) {
         Err(e) if e.kind() == ErrorKind::UnexpectedEof => {
-            todo!("server dropped... !!.       !");
+            todo!("server dropped");
         }
-        Err(e) => return Err(e).context("Error reading TCP size header"),
-        _ => {}
+        Err(e) => Err(e)?,
+        Ok(_) => {}
     }
 
     let size = ((size_buf[0] as usize) << 24)

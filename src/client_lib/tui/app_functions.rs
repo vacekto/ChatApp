@@ -1,52 +1,46 @@
-use crate::{
-    client_lib::{
-        global_states::app_state::get_app_state,
-        util::{config::FILES_DIR, types::ActiveStream},
-    },
-    shared_lib::types::{Chunk, FileMetadata},
-};
 use anyhow::Result;
-use std::{io::Write, path::Path};
 
-pub fn handle_file_metadata(meta: FileMetadata) -> Result<()> {
-    let path = String::from(FILES_DIR) + &meta.name;
-    let path = Path::new(&path);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
+use crate::shared_lib::types::{Chunk, FileMetadata};
 
-    let file = std::fs::File::create(path)?;
-    let stream_id = meta.stream_id;
+pub fn handle_file_metadata(_meta: FileMetadata) -> Result<()> {
+    // let path = String::from(FILES_DIR) + &meta.name;
+    // let path = Path::new(&path);
+    // if let Some(parent) = path.parent() {
+    //     std::fs::create_dir_all(parent)?;
+    // }
 
-    let stream = ActiveStream {
-        file_handle: file,
-        size: meta.size,
-        written: 0,
-    };
+    // let file = std::fs::File::create(path)?;
+    // let stream_id = meta.stream_id;
 
-    let mut state = get_app_state();
+    // let stream = ActiveStream {
+    //     file_handle: file,
+    //     size: meta.size,
+    //     written: 0,
+    // };
 
-    state.active_streams.insert(stream_id, stream);
+    // let mut state = get_app_state();
+
+    // state.active_streams.insert(stream_id, stream);
 
     Ok(())
 }
 
-pub fn handle_file_chunk(chunk: Chunk) -> Result<()> {
-    let mut state = get_app_state();
-    let stream = state.active_streams.get_mut(&chunk.stream_id).unwrap();
-    let bytes_to_write = std::cmp::min(chunk.data.len(), (stream.size - stream.written) as usize);
+pub fn handle_file_chunk(_chunk: Chunk) -> Result<()> {
+    // let mut state = get_app_state();
+    // let stream = state.active_streams.get_mut(&chunk.stream_id).unwrap();
+    // let bytes_to_write = std::cmp::min(chunk.data.len(), (stream.size - stream.written) as usize);
 
-    stream
-        .file_handle
-        .write_all(&chunk.data[0..bytes_to_write])?;
-    stream.written += chunk.data.len() as u64;
+    // stream
+    //     .file_handle
+    //     .write_all(&chunk.data[0..bytes_to_write])?;
+    // stream.written += chunk.data.len() as u64;
 
-    let written = stream.written;
-    let size = stream.size;
+    // let written = stream.written;
+    // let size = stream.size;
 
-    if written == size {
-        state.active_streams.remove(&chunk.stream_id).unwrap();
-    }
+    // if written == size {
+    //     state.active_streams.remove(&chunk.stream_id).unwrap();
+    // }
 
     Ok(())
 }

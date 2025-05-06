@@ -1,42 +1,37 @@
-use std::{collections::HashMap, env, sync::Mutex};
-
-use once_cell::sync::OnceCell;
-use uuid::Uuid;
-
 use crate::{
-    client_lib::util::types::ActiveStream,
-    shared_lib::types::{InitClientData, TextMsg},
+    client_lib::util::types::MpscChannel,
+    shared_lib::types::{ServerTuiMsg, TuiServerMsg},
 };
+use once_cell::sync::OnceCell;
+use std::{net::TcpStream, sync::Mutex};
 
-#[derive(Debug, Default)]
-pub struct AppState {
-    pub id: Uuid,
-    pub active_streams: HashMap<Uuid, ActiveStream>,
-    pub direct_messages: Vec<TextMsg>,
-    pub room_messages: Vec<TextMsg>,
-    pub username: String,
+#[derive(Debug)]
+pub struct GlobalData {
+    pub tcp: TcpStream,
+    pub tcp_tui_channel: MpscChannel<ServerTuiMsg, ServerTuiMsg>,
+    pub tui_tcp_channel: MpscChannel<TuiServerMsg, TuiServerMsg>,
 }
 
-static GLOBAL: OnceCell<Mutex<AppState>> = OnceCell::new();
+static GLOBAL: OnceCell<Mutex<GlobalData>> = OnceCell::new();
 
-pub fn init_app_state(init: InitClientData) {
-    let username = env::args().nth(1).unwrap();
-
+pub fn init_global_state(
+    tcp: TcpStream,
+    tcp_tui_channel: MpscChannel<ServerTuiMsg, ServerTuiMsg>,
+    tui_tcp_channel: MpscChannel<TuiServerMsg, TuiServerMsg>,
+) {
     GLOBAL
-        .set(Mutex::new(AppState {
-            id: init.id,
-            active_streams: HashMap::new(),
-            direct_messages: vec![],
-            room_messages: vec![],
-            username,
+        .set(Mutex::new(GlobalData {
+            tcp,
+            tcp_tui_channel,
+            tui_tcp_channel,
         }))
-        .expect("App already initialized");
+        .expect("Global state already initialized");
 }
 //
-pub fn get_app_state() -> std::sync::MutexGuard<'static, AppState> {
+pub fn get_global_state() -> std::sync::MutexGuard<'static, GlobalData> {
     GLOBAL
         .get()
-        .expect("AEpp state not initialized")
+        .expect("App state not initialized")
         .lock()
         .unwrap_or_else(|e| e.into_inner())
 }

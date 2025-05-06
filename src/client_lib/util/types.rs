@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs::File};
+use std::{collections::HashMap, fs::File, sync::mpsc};
 
 use ratatui::crossterm::event::Event;
 use uuid::Uuid;
@@ -47,4 +47,20 @@ pub enum ChannelKind {
 pub struct ActiveChannel {
     pub kind: ChannelKind,
     pub id: Option<Uuid>,
+}
+
+pub enum ActiveScreen {
+    Main,
+    Login,
+}
+
+#[derive(Clone)]
+pub enum AppMsg {
+    Quit,
+}
+
+#[derive(Debug)]
+pub struct MpscChannel<T, R> {
+    pub tx: mpsc::Sender<T>,
+    pub rx: Option<mpsc::Receiver<R>>,
 }

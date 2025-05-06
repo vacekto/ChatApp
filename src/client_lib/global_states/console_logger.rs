@@ -15,15 +15,12 @@ pub fn console_log(msg: &str) {
     log(msg)
 }
 
-fn log(msg: &str) {
-    let mut logger = match GLOBAL.get() {
-        Some(l) => l.lock().unwrap(),
+pub fn initialize_console_logger() {
+    GLOBAL.set(Mutex::new(ConsoleLogger::new())).unwrap();
+}
 
-        None => {
-            GLOBAL.set(Mutex::new(ConsoleLogger::new())).unwrap();
-            GLOBAL.get().unwrap().lock().unwrap()
-        }
-    };
+fn log(msg: &str) {
+    let mut logger = GLOBAL.get().unwrap().lock().unwrap();
     logger.log(msg);
 }
 
@@ -43,7 +40,6 @@ struct ConsoleLogger {
 
 impl ConsoleLogger {
     fn close_terminal(&mut self) {
-        self.log("closing");
         if let Err(e) = self.child.kill() {
             eprintln!("Failed to kill terminal: {e}");
         }

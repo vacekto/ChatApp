@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use bytes::Bytes;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task;
@@ -15,9 +15,42 @@ use super::util::types::{
     Client, ClientManagerMsg, DirectChannelTransit, ManagerClientMsg, RoomChannelTransit,
 };
 
-pub fn create_manager_task(mut rx_client_manager: mpsc::Receiver<ClientManagerMsg>) {
+struct Clients {
+    clients: HashMap<Uuid, Client>,
+    usernames: HashSet<String>,
+}
+
+impl Clients {
+    fn new() -> Self {
+        Self {
+            clients: HashMap::new(),
+            usernames: HashSet::new(),
+        }
+    }
+
+    fn insert(&mut self, c: Client) {
+        self.usernames.insert(c.user.username.clone());
+        self.clients.insert(c.user.id, c);
+    }
+
+    fn remove(&mut self, id: &Uuid) {
+        if let Some(c) = self.clients.remove(id) {
+            self.usernames.remove(&c.user.username);
+        };
+    }
+
+    fn get(&self, id: &Uuid) -> Option<&Client> {
+        self.clients.get(id)
+    }
+
+    fn contains(&self, username: String) -> bool {
+        self.usernames.contains(&username)
+    }
+}
+
+pub fn spawn_manager_task(mut rx_client_manager: mpsc::Receiver<ClientManagerMsg>) {
     task::spawn(async move {
-        let mut clients: HashMap<Uuid, Client> = HashMap::new();
+        let mut clients = Clients::new();
 
         let mut public_room = RoomChannel {
             id: Uuid::from_str(PUBLIC_ROOM_ID).unwrap(),
@@ -30,10 +63,14 @@ pub fn create_manager_task(mut rx_client_manager: mpsc::Receiver<ClientManagerMs
 
         loop {
             let msg = rx_client_manager.recv().await.expect(
-                "all tx_client_manager got dropped, should be at saved and cloned from server.rs",
+                "all tx_client_manager transmitters got dropped, one needs to live in server.rs to clone for new connections!!",
             );
 
             match msg {
+                ClientManagerMsg::CheckUsername(data) => {
+                    let res = clients.contains(data.username);
+                    let _ = data.tx.send(res);
+                }
                 ClientManagerMsg::Init(client) => {
                     public_room.users.push(client.user.clone());
 
@@ -48,7 +85,7 @@ pub fn create_manager_task(mut rx_client_manager: mpsc::Receiver<ClientManagerMs
                         log(err.into(), Some("initiating client"));
                     };
 
-                    clients.insert(client.user.id, client);
+                    clients.insert(client);
                 }
 
                 ClientManagerMsg::ClientDropped(id) => {
@@ -70,7 +107,7 @@ pub fn create_manager_task(mut rx_client_manager: mpsc::Receiver<ClientManagerMs
                         }
                     };
 
-                    tx_public_room.send(serialized.into()).unwrap();
+                    tx_public_room.send(serialized.into()).ok();
                 }
 
                 ClientManagerMsg::EstablishDirectComm(c) => {

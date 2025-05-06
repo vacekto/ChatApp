@@ -8,16 +8,16 @@ use once_cell::sync::OnceCell;
 
 static GLOBAL: OnceCell<Mutex<ThreadConstructor>> = OnceCell::new();
 
-pub fn init_thread_logger() {
-    GLOBAL.set(Mutex::new(ThreadConstructor::new())).unwrap();
-}
-
 fn gen_constructor() -> std::sync::MutexGuard<'static, ThreadConstructor> {
-    GLOBAL
-        .get()
-        .unwrap()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
+    let mutex = match GLOBAL.get() {
+        Some(v) => v,
+        None => {
+            GLOBAL.set(Mutex::new(ThreadConstructor::new())).unwrap();
+            GLOBAL.get().unwrap()
+        }
+    };
+
+    mutex.lock().expect("Global tcp stream instance poisoned!!")
 }
 
 pub fn get_thread_logger() -> ThreadLogger {
@@ -33,6 +33,7 @@ pub fn get_thread_runner() -> ThreadRunner {
 struct ThreadResult {
     pub thread_name: String,
     pub res: Result<(), anyhow::Error>,
+    throw: bool,
 }
 
 #[derive(Debug)]
@@ -70,25 +71,20 @@ impl ThreadLogger {
         Self { rx }
     }
 
-    pub fn log_results(self, return_after_err: bool) {
+    pub fn log_results(self) {
         let rx = self.rx;
 
         while let Ok(result) = rx.recv() {
-            let msg = match result.res {
-                Ok(_) => format!("Thread {} returned successfully", result.thread_name),
+            match result.res {
+                Ok(_) => println!("Thread {} returned successfully", result.thread_name),
                 Err(err) => {
-                    format!(
-                        "Thread \"{}\" returned with an error: {}.  \nBacktrace:\n {}",
-                        result.thread_name,
-                        err,
-                        err.backtrace()
-                    )
+                    ratatui::restore();
+                    println!("Error from thread {}: {}", result.thread_name, err);
+                    println!("err: {}", err.backtrace());
                 }
             };
 
-            println!("{}", msg);
-
-            if return_after_err {
+            if result.throw {
                 break;
             }
         }
@@ -104,6 +100,7 @@ impl ThreadRunner {
         tx: mpsc::Sender<ThreadResult>,
         thread_name: T,
         f: F,
+        throw: bool,
     ) -> impl FnOnce()
     where
         F: FnOnce() -> Result<()>,
@@ -115,12 +112,13 @@ impl ThreadRunner {
             let res = ThreadResult {
                 thread_name: thread_name.as_ref().into(),
                 res,
+                throw,
             };
             tx.send(res).expect("Listener for ThreatLogger dropped!!");
         }
     }
 
-    pub fn run<F, T>(&self, thread_name: T, f: F)
+    pub fn spawn<F, T>(&self, thread_name: T, throw: bool, f: F)
     where
         F: FnOnce() -> Result<()> + Send + 'static,
         T: AsRef<str> + Send + 'static + Clone,
@@ -130,7 +128,7 @@ impl ThreadRunner {
 
         thread::Builder::new()
             .name(name)
-            .spawn(self.catch_thread_erros(tx, thread_name.clone(), f))
+            .spawn(self.catch_thread_erros(tx, thread_name.clone(), f, throw))
             .expect(&format!("failed to buid {} thread", thread_name.as_ref()));
     }
 }

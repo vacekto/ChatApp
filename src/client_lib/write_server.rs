@@ -1,10 +1,21 @@
-use std::{io::Write, net::TcpStream, sync::mpsc};
+use std::io::Write;
 
 use anyhow::{Context, Result};
 
 use crate::shared_lib::types::TuiServerMsg;
 
-pub fn tcp_write(mut tcp: TcpStream, rx: mpsc::Receiver<TuiServerMsg>) -> Result<()> {
+use super::global_states::app_state::get_global_state;
+
+pub fn tcp_write() -> Result<()> {
+    let mut state = get_global_state();
+    let mut tcp = state.tcp.try_clone().unwrap();
+    let rx = state
+        .tui_tcp_channel
+        .rx
+        .take()
+        .expect("rx_tui_tcp already taken, can be listening only once!!");
+    drop(state);
+
     while let Ok(msg) = rx.recv() {
         let framed = frame_tcp_msg(msg)?;
         tcp.write_all(&framed)?;
@@ -12,6 +23,7 @@ pub fn tcp_write(mut tcp: TcpStream, rx: mpsc::Receiver<TuiServerMsg>) -> Result
 
     Ok(())
 }
+
 fn frame_tcp_msg(msg: TuiServerMsg) -> Result<Vec<u8>> {
     let serialized = bincode::serialize(&msg).context("incorrect init data from server")?;
     let framed = frame_data(&serialized);

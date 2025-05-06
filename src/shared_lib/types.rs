@@ -1,9 +1,8 @@
+use crate::client_lib::util::config::TCP_CHUNK_BUFFER_SIZE;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::client_lib::util::config::TCP_CHUNK_BUFFER_SIZE;
-
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct InitClientData {
     pub id: Uuid,
     pub username: String,
@@ -43,6 +42,7 @@ pub enum TuiServerMsg {
     Text(TextMsg),
     FileChunk(Chunk),
     FileMetadata(FileMetadata),
+    Logout,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -52,6 +52,7 @@ pub enum ServerTuiMsg {
     FileMetadata(FileMetadata),
     RoomUpdate(RoomChannel),
     JoinRoom(RoomChannel),
+    Auth(AuthResponse),
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -82,7 +83,13 @@ pub enum ChannelMsg {
     JoinNotification(User),
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct AuthData {
     pub username: String,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub enum AuthResponse {
+    Success(InitClientData),
+    Failure(String),
 }

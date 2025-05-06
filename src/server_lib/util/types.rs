@@ -20,6 +20,12 @@ pub enum ClientManagerMsg {
     Init(Client),
     ClientDropped(Uuid),
     EstablishDirectComm(DirectChannelTransit),
+    CheckUsername(UsernameCheck),
+}
+
+pub struct UsernameCheck {
+    pub username: String,
+    pub tx: oneshot::Sender<bool>,
 }
 
 pub enum ManagerClientMsg {
@@ -49,4 +55,9 @@ pub struct OneShotChannel<T> {
 pub struct Client {
     pub user: User,
     pub tx: mpsc::Sender<ManagerClientMsg>,
+}
+
+pub enum ClientTaskResult {
+    Close,
+    Logout,
 }

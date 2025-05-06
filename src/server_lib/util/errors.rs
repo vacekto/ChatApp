@@ -7,3 +7,13 @@ pub enum DataParsingError {
     #[error("Failed to serialize / deserialize using bincode, actual error: {0}")]
     Bincode(#[from] Box<bincode::ErrorKind>),
 }
+
+#[derive(Error, Debug)]
+pub enum AuthError {
+    #[error("Server error while parsing msg")]
+    DataParsing(#[from] DataParsingError),
+    #[error("Username {0} already taken")]
+    UsernameTaken(String),
+    #[error("{0}")]
+    Unexpected(String),
+}

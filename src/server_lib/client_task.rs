@@ -25,30 +25,30 @@ use super::util::{
     errors::DataParsingError,
     server_functions::{serialize_file_chunk, serialize_file_metadata, serialize_text_msg},
     types::{
-        BroadcastChannel, ChannelTransitPayload, Client, ClientManagerMsg, DirectChannelTransit,
-        ManagerClientMsg, MpscChannel,
+        BroadcastChannel, ChannelTransitPayload, Client, ClientManagerMsg, ClientTaskResult,
+        DirectChannelTransit, ManagerClientMsg, MpscChannel,
     },
 };
 
-pub struct ClientTask {
+pub struct ClientTask<'a> {
     _username: String,
     id: Uuid,
     client_manager_channel: MpscChannel<ClientManagerMsg, ManagerClientMsg>,
     comm_client_data_channel: MpscChannel,
     comm_client_drop_channel: MpscChannel<Channel, Channel>,
     client_comm_cleanup_channel: BroadcastChannel<(), ()>,
-    close_channel: MpscChannel<(), ()>,
-    tcp_read: FramedRead<OwnedReadHalf, LengthDelimitedCodec>,
-    tcp_write: FramedWrite<OwnedWriteHalf, LengthDelimitedCodec>,
+    close_channel: MpscChannel<ClientTaskResult, ClientTaskResult>,
+    tcp_read: &'a mut FramedRead<OwnedReadHalf, LengthDelimitedCodec>,
+    tcp_write: &'a mut FramedWrite<OwnedWriteHalf, LengthDelimitedCodec>,
     room_channels: HashMap<Uuid, broadcast::Sender<Bytes>>,
     direct_channels: HashMap<Uuid, mpsc::Sender<Bytes>>,
 }
 
-impl ClientTask {
+impl<'a> ClientTask<'a> {
     pub async fn new(
         init_data: InitClientData,
-        tcp_read: FramedRead<OwnedReadHalf, LengthDelimitedCodec>,
-        tcp_write: FramedWrite<OwnedWriteHalf, LengthDelimitedCodec>,
+        tcp_read: &'a mut FramedRead<OwnedReadHalf, LengthDelimitedCodec>,
+        tcp_write: &'a mut FramedWrite<OwnedWriteHalf, LengthDelimitedCodec>,
         tx_client_manager: mpsc::Sender<ClientManagerMsg>,
     ) -> Self {
         let id = init_data.id;
@@ -85,7 +85,7 @@ impl ClientTask {
             },
         };
 
-        let (tx_close, rx_close) = mpsc::channel::<()>(COMM_CLIENT_CAPACITY);
+        let (tx_close, rx_close) = mpsc::channel::<ClientTaskResult>(COMM_CLIENT_CAPACITY);
         let close_channel = MpscChannel {
             tx: tx_close,
             rx: rx_close,
@@ -115,17 +115,17 @@ impl ClientTask {
         }
     }
 
-    pub async fn run(mut self) {
+    pub async fn run(mut self) -> ClientTaskResult {
         loop {
             select! {
                 result = self.tcp_read.next() => if let Err(err) = self.handle_tcp_msg(result).await {
                     log(err.into(), Some("Error reading data to client in tcp stream instance."));
-                    return;
+                    return ClientTaskResult::Close;
                 },
 
                 result = self.client_manager_channel.rx.recv() => if let Err(err) = self.handle_manager_msg(result).await{
                     log(err.into(), Some("Transmitter from manager client dropped."));
-                    return
+                    return ClientTaskResult::Close
                 },
 
                 result = self.comm_client_data_channel.rx.recv() => {
@@ -133,13 +133,13 @@ impl ClientTask {
                         Some(r) => r,
                         None => {
                             log(anyhow!("Transmitter of communication task to client task for bytes of data dropped. Should be in comm_client_data_channel field!!!"), None);
-                            return;
+                            return ClientTaskResult::Close;
                         }
                     };
 
                     if let Err(err) = self.tcp_write.send(result).await{
                         log(err.into(), Some("Error writing data to client in tcp stream instance."));
-                        return;
+                        return ClientTaskResult::Close;
                     };
                 }
 
@@ -148,16 +148,23 @@ impl ClientTask {
                         Some(r) => r,
                         None => {
                             log(anyhow!("Transmitter of communication task to client task for channel drop notification dropped. Should be in comm_client_drop_channel field!!!"), None);
-                            return;
+                            return ClientTaskResult::Close;
                         }
                     };
                     self.handle_comm_drop(result);
 
                 }
 
-                _ = self.close_channel.rx.recv() => {
-                    self.client_comm_cleanup_channel.tx.send(()).ok();
-                    return;
+                result = self.close_channel.rx.recv() => {
+                    let msg = ClientManagerMsg::ClientDropped(self.id);
+                    if let Err(err) = self.client_manager_channel.tx.send(msg).await {
+                        log(err.into(), Some("rx_client_manager dropped"))
+                    };
+
+                    if let Some(res) = result {
+                        self.client_comm_cleanup_channel.tx.send(()).ok();
+                        return res;
+                    };
                 }
             }
         }
@@ -180,7 +187,7 @@ impl ClientTask {
     ) -> Result<(), DataParsingError> {
         match result {
             Some(frame) => {
-                let data: Bytes = frame.map_err(|err| DataParsingError::from(err))?.into();
+                let data = frame.map_err(|err| DataParsingError::from(err))?;
 
                 let message: TuiServerMsg =
                     bincode::deserialize(&data).map_err(|err| DataParsingError::from(err))?;
@@ -198,14 +205,16 @@ impl ClientTask {
                         let data = serialize_file_metadata(m.clone())?;
                         self.send_data(data, m.to).await
                     }
+                    TuiServerMsg::Logout => {
+                        if let Err(err) = self.close_channel.tx.send(ClientTaskResult::Logout).await
+                        {
+                            log(err.into(), Some("rx close_channel dropped"))
+                        };
+                    }
                 };
             }
             None => {
-                let msg = ClientManagerMsg::ClientDropped(self.id);
-                if let Err(err) = self.client_manager_channel.tx.send(msg).await {
-                    log(err.into(), Some("rx_client_manager dropped"))
-                };
-                if let Err(err) = self.close_channel.tx.send(()).await {
+                if let Err(err) = self.close_channel.tx.send(ClientTaskResult::Close).await {
                     log(err.into(), Some("rx close_channel dropped"))
                 };
             }
@@ -223,7 +232,7 @@ impl ClientTask {
                     self.direct_channels
                         .insert(c.payload.from, c.payload.tx_client_client);
 
-                    let tx_client_client = self.create_direct_communication_task(c.payload.from);
+                    let tx_client_client = self.spawn_direct_communication_task(c.payload.from);
                     if c.ack.send(tx_client_client).is_err() {
                         log(anyhow!("establishing direct communication"), None);
                     };
@@ -236,7 +245,7 @@ impl ClientTask {
                     let bytes = bincode::serialize(&msg)?;
                     self.tcp_write.send(bytes.into()).await?;
 
-                    let tx = self.create_room_communication_task(transit.tx, room_id);
+                    let tx = self.spawn_room_communication_task(transit.tx, room_id);
 
                     let msg = ServerTuiMsg::RoomUpdate(transit.room);
 
@@ -281,7 +290,7 @@ impl ClientTask {
 
     async fn establish_direct_comm(&mut self, target_id: Uuid, data: Bytes) {
         let (tx_ack, rx_ack) = oneshot::channel::<mpsc::Sender<Bytes>>();
-        let tx_client_client = self.create_direct_communication_task(target_id);
+        let tx_client_client = self.spawn_direct_communication_task(target_id);
 
         let channel_transit = DirectChannelTransit {
             payload: ChannelTransitPayload {
@@ -317,7 +326,7 @@ impl ClientTask {
         direct_channels.insert(target_id, new_direct);
     }
 
-    fn create_direct_communication_task(&mut self, direct_channel_id: Uuid) -> mpsc::Sender<Bytes> {
+    fn spawn_direct_communication_task(&mut self, direct_channel_id: Uuid) -> mpsc::Sender<Bytes> {
         let (tx_client_client, mut rx_client_client) = mpsc::channel::<Bytes>(DIRECT_CAPACITY);
 
         let mut rx_cleanup = self.client_comm_cleanup_channel.tx.subscribe();
@@ -345,7 +354,7 @@ impl ClientTask {
         tx_client_client
     }
 
-    fn create_room_communication_task(
+    fn spawn_room_communication_task(
         &mut self,
         tx_client_room: broadcast::Sender<Bytes>,
         room_id: Uuid,
