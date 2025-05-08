@@ -1,15 +1,12 @@
-use crate::{
-    client_lib::{
-        tui::app::app::App,
-        util::types::{ChannelKind, Contact},
-    },
-    shared_lib::types::{ChannelMsg, DirectChannel, RoomChannel, TextMsg, User},
+use crate::client_lib::{
+    tui::app::app::App,
+    util::types::{ChannelKind, Contact},
 };
 
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Margin, Rect},
-    style::{Color, Style, Stylize},
+    style::{Color, Style},
     symbols::border,
     text::{Line, Span},
     widgets::{Block, Paragraph, Widget, Wrap},
@@ -75,27 +72,28 @@ impl App {
             ChannelKind::Direct => {
                 for c in &self.direct_channels {
                     let contact = Contact::Direct(c);
-                    let mut span = Span::from(&contact);
+                    let mut contact_span = Span::from(&contact);
                     match self.active_channel.id {
                         Some(id) if id == c.user.id => {
-                            span.style = Style::default().fg(Color::White).bg(Color::DarkGray);
+                            contact_span.style =
+                                Style::default().fg(Color::White).bg(Color::DarkGray);
                         }
                         _ => {}
                     }
-                    contacts.push(Line::from(span))
+                    contacts.push(Line::from(contact_span))
                 }
             }
             ChannelKind::Room => {
                 for c in &self.room_channels {
                     let room = Contact::Room(c);
-                    let mut span = Span::from(&room);
+                    let mut contact_span = Span::from(&room);
                     match self.active_channel.id {
                         Some(id) if id == c.id => {
-                            span.style = Style::new().fg(Color::White).bg(Color::DarkGray);
+                            contact_span.style = Style::new().fg(Color::White).bg(Color::DarkGray);
                         }
                         _ => {}
                     }
-                    contacts.push(Line::from(span))
+                    contacts.push(Line::from(contact_span))
                 }
             }
         }
@@ -126,51 +124,5 @@ impl App {
             .render(area_messages, buf);
 
         self.main_text_area.render(area_input_inner, buf);
-    }
-}
-
-impl From<&ChannelMsg> for Line<'static> {
-    fn from(msg: &ChannelMsg) -> Self {
-        match msg {
-            ChannelMsg::JoinNotification(notification) => Line::from(notification),
-            ChannelMsg::TextMsg(msg) => Line::from(msg),
-        }
-    }
-}
-
-impl From<&TextMsg> for Line<'static> {
-    fn from(msg: &TextMsg) -> Self {
-        let text = Span::from(msg.text.clone());
-        let username = Span::from(msg.from.username.clone() + ": ").bold();
-        Line::from(vec![username, text])
-    }
-}
-
-impl From<&User> for Line<'static> {
-    fn from(user: &User) -> Self {
-        let username = user.username.clone();
-        let notification = Span::from(username + ": joined the room");
-        Line::from(notification)
-    }
-}
-
-impl From<&RoomChannel> for Span<'_> {
-    fn from(c: &RoomChannel) -> Self {
-        Span::from(c.name.clone()).bold()
-    }
-}
-
-impl From<&DirectChannel> for Span<'_> {
-    fn from(c: &DirectChannel) -> Self {
-        Span::from(c.user.username.clone())
-    }
-}
-
-impl<'a> From<&Contact<'a>> for Span<'a> {
-    fn from(c: &Contact<'a>) -> Self {
-        match c {
-            Contact::Direct(d) => Span::from(*d),
-            Contact::Room(r) => Span::from(*r),
-        }
     }
 }

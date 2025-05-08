@@ -3,7 +3,6 @@ use chat_app::{
     client_lib::{
         global_states::{
             app_state::init_global_state,
-            console_logger::{close_console_logger, initialize_console_logger},
             thread_logger::{get_thread_logger, get_thread_runner},
         },
         read_server::tcp_read,
@@ -19,9 +18,8 @@ use chat_app::{
 use std::{net::TcpStream, sync::mpsc, thread, time::Duration};
 
 fn main() -> Result<()> {
-    initialize_console_logger();
     let tcp = loop {
-        println!("attempting to establish connection..");
+        println!("attempting to establish connection../");
         match TcpStream::connect(SERVER_ADDR) {
             Ok(s) => {
                 println!("connection established with: :{}", SERVER_ADDR);
@@ -57,6 +55,5 @@ fn main() -> Result<()> {
     th_runner.spawn("ratatui", true, || tui());
 
     th_logger.log_results();
-    close_console_logger();
     Ok(())
 }

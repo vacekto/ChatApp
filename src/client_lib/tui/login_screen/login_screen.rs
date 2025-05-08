@@ -30,6 +30,7 @@ impl App {
         let mut state = get_global_state();
 
         let data = AuthData { username };
+
         let serialized = bincode::serialize(&data)?;
         let framed = frame_data(&serialized);
         state.tcp.write_all(&framed)?;

@@ -20,7 +20,14 @@ pub fn initialize_console_logger() {
 }
 
 fn log(msg: &str) {
-    let mut logger = GLOBAL.get().unwrap().lock().unwrap();
+    let mut logger = match GLOBAL.get() {
+        Some(l) => l.lock().unwrap(),
+        None => {
+            initialize_console_logger();
+            GLOBAL.get().unwrap().lock().unwrap()
+        }
+    };
+
     logger.log(msg);
 }
 

@@ -10,7 +10,7 @@ pub enum DataParsingError {
 
 #[derive(Error, Debug)]
 pub enum AuthError {
-    #[error("Server error while parsing msg")]
+    #[error(transparent)]
     DataParsing(#[from] DataParsingError),
     #[error("Username {0} already taken")]
     UsernameTaken(String),

@@ -138,14 +138,8 @@ async fn handle_connection(tcp: TcpStream, tx_client_manager: mpsc::Sender<Clien
         let res = client.run().await;
 
         match res {
-            ClientTaskResult::Close => {
-                println!("vypnutí");
-                return;
-            }
-            ClientTaskResult::Logout => {
-                println!("odhlášení");
-                continue;
-            }
+            ClientTaskResult::Close => return,
+            ClientTaskResult::Logout => continue,
         }
     }
 }

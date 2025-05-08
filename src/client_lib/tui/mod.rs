@@ -1,5 +1,5 @@
+pub mod accessories;
 pub mod app;
-pub mod app_functions;
 pub mod login_screen;
 pub mod main_screen;
 

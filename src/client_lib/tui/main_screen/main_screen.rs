@@ -1,20 +1,13 @@
 use crate::{
     client_lib::{
-        global_states::{
-            app_state::get_global_state, console_logger::console_log,
-            thread_logger::get_thread_runner,
-        },
-        tui::{
-            app::app::App,
-            app_functions::{handle_file_chunk, handle_file_metadata},
-        },
+        global_states::{app_state::get_global_state, thread_logger::get_thread_runner},
+        tui::app::app::App,
         util::types::{ActiveScreen, ChannelKind, TuiUpdate},
     },
     shared_lib::{
         config::PUBLIC_ROOM_ID,
         types::{
             AuthResponse, Channel, ChannelMsg, DirectChannel, RoomChannel, ServerTuiMsg, TextMsg,
-            TuiServerMsg, User,
         },
     },
 };
@@ -24,7 +17,6 @@ use std::{
     str::FromStr,
     sync::mpsc::{self},
 };
-use tui_textarea::TextArea;
 use uuid::Uuid;
 
 impl App {
@@ -63,8 +55,8 @@ impl App {
 
     pub fn handle_server_msg(&mut self, msg: ServerTuiMsg) -> Result<()> {
         match msg {
-            ServerTuiMsg::FileChunk(chunk) => handle_file_chunk(chunk)?,
-            ServerTuiMsg::FileMetadata(meta) => handle_file_metadata(meta)?,
+            ServerTuiMsg::FileChunk(chunk) => self.handle_file_chunk(chunk)?,
+            ServerTuiMsg::FileMetadata(meta) => self.handle_file_metadata(meta)?,
             ServerTuiMsg::Text(msg) => self.handle_text_message(msg),
             ServerTuiMsg::RoomUpdate(room) => self.handle_room_update(room),
             ServerTuiMsg::JoinRoom(room) => self.handle_room_invitation(room),
@@ -76,9 +68,7 @@ impl App {
 
     fn handle_auth_response(&mut self, data: AuthResponse) {
         match data {
-            AuthResponse::Failure(msg) => {
-                console_log(&msg);
-            }
+            AuthResponse::Failure(_msg) => {}
             AuthResponse::Success(init) => {
                 self.username = init.username;
                 self.id = init.id;
@@ -164,7 +154,7 @@ impl App {
         }
     }
 
-    fn get_direct_messages(&mut self, id: Uuid) -> Option<&mut Vec<ChannelMsg>> {
+    pub fn get_direct_messages(&mut self, id: Uuid) -> Option<&mut Vec<ChannelMsg>> {
         let res = self.direct_channels.iter_mut().find(|c| c.user.id == id);
         match res {
             Some(c) => Some(&mut c.messages),
@@ -185,6 +175,7 @@ impl App {
             KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.exit()
             }
+            KeyCode::Char('`') => self.display_file_selector = true,
             KeyCode::Enter => self.send_message()?,
             KeyCode::Esc => self.logout()?,
             KeyCode::Up => self.move_active_channel_up(),
@@ -306,40 +297,5 @@ impl App {
                 self.active_channel.id = Some(self.room_channels[0].id);
             }
         }
-    }
-
-    pub fn send_message(&mut self) -> Result<()> {
-        let id = match self.active_channel.id {
-            None => return Ok(()),
-            Some(id) => id,
-        };
-        let text = self.main_text_area.lines().join("\n");
-
-        let from = User {
-            username: self.username.clone(),
-            id: self.id,
-        };
-
-        let to = match self.active_channel.kind {
-            ChannelKind::Direct => Channel::User(id),
-            ChannelKind::Room => Channel::Room(id),
-        };
-
-        let msg = TextMsg { text, from, to };
-
-        if let Some(messages) = self.get_direct_messages(id) {
-            messages.push(ChannelMsg::TextMsg(msg.clone()));
-        };
-
-        let msg = TuiServerMsg::Text(msg);
-
-        self.tx_tui_tcp.send(msg)?;
-        self.main_text_area = TextArea::default();
-
-        Ok(())
-    }
-
-    pub fn exit(&mut self) {
-        self.exit = true;
     }
 }

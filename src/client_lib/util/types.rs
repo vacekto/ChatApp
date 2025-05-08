@@ -1,9 +1,7 @@
-use std::{collections::HashMap, fs::File, sync::mpsc};
-
-use ratatui::crossterm::event::Event;
-use uuid::Uuid;
-
 use crate::shared_lib::types::{DirectChannel, RoomChannel, ServerTuiMsg, TextMsg, User};
+use ratatui::crossterm::event::Event;
+use std::{collections::HashMap, fs::File, path::PathBuf, sync::mpsc};
+use uuid::Uuid;
 
 #[derive(Debug, Default)]
 pub struct AppState {
@@ -63,4 +61,24 @@ pub enum AppMsg {
 pub struct MpscChannel<T, R> {
     pub tx: mpsc::Sender<T>,
     pub rx: Option<mpsc::Receiver<R>>,
+}
+
+#[derive(Debug)]
+pub struct SelectorEntry {
+    pub name: String,
+    pub kind: SelectorEntryKind,
+    pub selected: bool,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum SelectorEntryKind {
+    Folder,
+    File,
+}
+
+pub struct FileSelector {
+    pub current_location: PathBuf,
+    pub selected_index: usize,
+    pub entries: Vec<SelectorEntry>,
+    pub scroll_offset: u16,
 }

@@ -6,6 +6,8 @@ use std::{
 use anyhow::{self, Result};
 use once_cell::sync::OnceCell;
 
+use super::console_logger::console_log;
+
 static GLOBAL: OnceCell<Mutex<ThreadConstructor>> = OnceCell::new();
 
 fn gen_constructor() -> std::sync::MutexGuard<'static, ThreadConstructor> {
@@ -76,7 +78,12 @@ impl ThreadLogger {
 
         while let Ok(result) = rx.recv() {
             match result.res {
-                Ok(_) => println!("Thread {} returned successfully", result.thread_name),
+                Ok(_) => {
+                    console_log(&format!(
+                        "Thread {} returned successfully",
+                        result.thread_name
+                    ));
+                }
                 Err(err) => {
                     ratatui::restore();
                     println!("Error from thread {}: {}", result.thread_name, err);
