@@ -32,24 +32,23 @@ impl From<&User> for Line<'static> {
         Line::from(notification)
     }
 }
-
-impl From<&RoomChannel> for Span<'_> {
+impl From<&RoomChannel> for Line<'_> {
     fn from(c: &RoomChannel) -> Self {
-        Span::from(c.name.clone()).bold()
+        Line::from(c.name.clone())
     }
 }
 
-impl From<&DirectChannel> for Span<'_> {
+impl From<&DirectChannel> for Line<'_> {
     fn from(c: &DirectChannel) -> Self {
-        Span::from(c.user.username.clone())
+        Line::from(c.user.username.clone())
     }
 }
 
-impl<'a> From<&Contact<'a>> for Span<'a> {
+impl<'a> From<&Contact<'a>> for Line<'a> {
     fn from(c: &Contact<'a>) -> Self {
         match c {
-            Contact::Direct(d) => Span::from(*d),
-            Contact::Room(r) => Span::from(*r),
+            Contact::Direct(d) => Line::from(*d),
+            Contact::Room(r) => Line::from(*r),
         }
     }
 }

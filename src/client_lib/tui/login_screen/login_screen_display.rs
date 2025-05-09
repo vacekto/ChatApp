@@ -1,41 +1,61 @@
 use ratatui::{
     buffer::Buffer,
-    layout::Rect,
-    widgets::{Block, Borders, Widget},
+    layout::{Constraint, Direction, Layout, Margin, Rect},
+    style::{Color, Style, Stylize},
+    symbols::border,
+    text::{Line, Span},
+    widgets::{Block, Widget},
 };
 
-use crate::client_lib::tui::app::app::App;
+use crate::client_lib::{tui::app::app::App, util::config::THEME_BORDER};
 
 impl App {
-    pub fn render_login_screen(&self, area: Rect, buf: &mut Buffer) {
+    pub fn render_login_screen(&mut self, area: Rect, buf: &mut Buffer) {
+        self.login_text_area.set_cursor_line_style(Style::default());
+
         let width_o = 60;
-        let height_o = 15;
+        let height_o = 10;
 
         let x_o = (area.width.saturating_sub(width_o)) / 2;
         let y_o = (area.height.saturating_sub(height_o)) / 2;
 
         let outer_rect = Rect::new(x_o, y_o, width_o, height_o);
 
-        let width_i = 50;
-        let height_i = 3;
+        let layout_login = Layout::default()
+            .direction(Direction::Vertical)
+            .margin(2)
+            .constraints(vec![Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(outer_rect);
 
-        let x_i = (area.width.saturating_sub(width_i)) / 2;
-        let y_i = (area.height.saturating_sub(height_i)) / 2;
+        let lower_rect = layout_login[1].inner(Margin::new(0, 1));
+        let upper_rect = layout_login[0];
+        let inner_upper_rect = upper_rect.inner(Margin::new(1, 1));
 
-        let inner_rect = Rect::new(x_i, y_i, width_i, height_i);
+        let title_msg = Span::styled(
+            " Username ",
+            Style::default()
+                .fg(Color::Rgb(THEME_BORDER.0, THEME_BORDER.1, THEME_BORDER.2))
+                // .bg(Color::Rgb(THEME_BORDER.0, THEME_BORDER.1, THEME_BORDER.2))
+                .bold(),
+        );
 
-        Block::default()
-            .title("outer")
-            .borders(Borders::ALL)
-            .render(outer_rect, buf);
+        if let Some(msg) = &self.login_notification {
+            Line::from(msg.clone())
+                .centered()
+                .style(Style::default().fg(Color::LightRed))
+                .render(lower_rect, buf);
+        }
 
-        Block::default()
-            .title("inner")
-            .borders(Borders::ALL)
-            .render(inner_rect, buf);
+        Block::bordered()
+            .title(title_msg)
+            .border_set(border::PLAIN)
+            .border_style(Style::default().fg(Color::Rgb(
+                THEME_BORDER.0,
+                THEME_BORDER.1,
+                THEME_BORDER.2,
+            )))
+            .render(upper_rect, buf);
 
-        // textarea.set_block(block);
-
-        self.login_text_area.render(inner_rect, buf);
+        self.login_text_area.render(inner_upper_rect, buf);
     }
 }

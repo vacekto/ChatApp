@@ -1,12 +1,9 @@
+use anyhow::{self, Result};
+use once_cell::sync::OnceCell;
 use std::{
     sync::{mpsc, Mutex},
     thread,
 };
-
-use anyhow::{self, Result};
-use once_cell::sync::OnceCell;
-
-use super::console_logger::console_log;
 
 static GLOBAL: OnceCell<Mutex<ThreadConstructor>> = OnceCell::new();
 
@@ -79,10 +76,7 @@ impl ThreadLogger {
         while let Ok(result) = rx.recv() {
             match result.res {
                 Ok(_) => {
-                    console_log(&format!(
-                        "Thread {} returned successfully",
-                        result.thread_name
-                    ));
+                    println!("Thread {} returned successfully", result.thread_name);
                 }
                 Err(err) => {
                     ratatui::restore();

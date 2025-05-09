@@ -68,7 +68,7 @@ impl App {
 
     fn handle_auth_response(&mut self, data: AuthResponse) {
         match data {
-            AuthResponse::Failure(_msg) => {}
+            AuthResponse::Failure(msg) => self.login_notification = Some(msg),
             AuthResponse::Success(init) => {
                 self.username = init.username;
                 self.id = init.id;
@@ -153,7 +153,6 @@ impl App {
             }
         }
     }
-
     pub fn get_direct_messages(&mut self, id: Uuid) -> Option<&mut Vec<ChannelMsg>> {
         let res = self.direct_channels.iter_mut().find(|c| c.user.id == id);
         match res {

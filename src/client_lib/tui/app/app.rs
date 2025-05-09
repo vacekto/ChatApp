@@ -1,8 +1,8 @@
 use crate::{
     client_lib::{
-        global_states::{app_state::get_global_state, console_logger::console_log},
+        global_states::app_state::get_global_state,
         util::{
-            config::FILES_DIR,
+            config::{FILES_DIR, THEME_BG_LIGHT},
             types::{
                 ActiveChannel, ActiveScreen, ActiveStream, ChannelKind, FileSelector, TuiUpdate,
             },
@@ -16,8 +16,8 @@ use crate::{
 use anyhow::Result;
 use ratatui::{
     crossterm::event::{Event, KeyEventKind},
-    layout::Margin,
-    widgets::{Scrollbar, ScrollbarOrientation, ScrollbarState},
+    style::{Color, Style},
+    widgets::Paragraph,
     DefaultTerminal, Frame,
 };
 use std::{
@@ -69,7 +69,7 @@ impl App {
             active_screen: ActiveScreen::Login,
             display_file_selector: false,
             file_selector: FileSelector::new(),
-            login_notification: None,
+            login_notification: Some("cosikdosi".into()),
         }
     }
 
@@ -80,7 +80,6 @@ impl App {
         self.listen_for_events(tx_tui.clone())?;
 
         while !self.exit {
-            console_log(&format!("{}", self.file_selector.selected_index));
             terminal.draw(|frame| self.draw(frame))?;
             match rx_tui.recv()? {
                 TuiUpdate::Event(e) => self.handle_events(e)?,
@@ -92,26 +91,21 @@ impl App {
     }
 
     fn draw(&mut self, frame: &mut Frame) {
+        let background = Paragraph::new("").style(
+            Style::default()
+                // .fg(Color::Rgb(MAIN_1.0, MAIN_1.1, MAIN_1.2))
+                .bg(Color::Rgb(
+                    THEME_BG_LIGHT.0,
+                    THEME_BG_LIGHT.1,
+                    THEME_BG_LIGHT.2,
+                )),
+        );
+        frame.render_widget(background, frame.area());
+        frame.render_widget(&mut *self, frame.area());
+
         if self.display_file_selector {
             frame.render_widget(&mut self.file_selector, frame.area());
-            let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
-                .begin_symbol(Some("↑"))
-                .end_symbol(None);
-
-            let mut scrollbar_state = ScrollbarState::new(self.file_selector.entries.len())
-                .position(self.file_selector.scroll_offset as usize);
-
-            let area = frame.area();
-            frame.render_stateful_widget(
-                scrollbar,
-                area.inner(Margin {
-                    vertical: 1,
-                    horizontal: 0,
-                }),
-                &mut scrollbar_state,
-            );
         }
-        frame.render_widget(self, frame.area());
     }
 
     pub fn init(&mut self, init: InitClientData) {
