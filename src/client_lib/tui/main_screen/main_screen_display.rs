@@ -1,19 +1,27 @@
-use crate::client_lib::{
-    tui::app::app::App,
-    util::{
-        config::{THEME_BG_DARK, THEME_BG_LIGHT, THEME_BORDER, THEME_SELECT, THEME_SELECT_BG},
-        functions::pad_line_to_width,
-        types::{ChannelKind, Contact},
+use crate::{
+    client_lib::{
+        tui::app::app::App,
+        util::{
+            config::{
+                MESSAGES_SCROLL_RESERVE, THEME_BG_DARK, THEME_BG_LIGHT, THEME_BORDER, THEME_SELECT,
+                THEME_SELECT_BG,
+            },
+            functions::pad_line_to_width,
+            types::{ChannelKind, Contact},
+        },
     },
+    shared_lib::types::TuiMsg,
 };
-
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Margin, Rect},
     style::{Color, Style, Stylize},
     symbols::border,
     text::{Line, Span},
-    widgets::{Block, Paragraph, Widget, Wrap},
+    widgets::{
+        Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget, Widget,
+        Wrap,
+    },
 };
 
 impl App {
@@ -166,23 +174,69 @@ impl App {
             )));
 
         let mut messages: Vec<Line> = vec![];
+
         if let Some(id) = &self.active_channel.id {
-            messages = match &self.active_channel.kind {
+            match &self.active_channel.kind {
                 ChannelKind::Direct => {
                     match self.direct_channels.iter().find(|c| &c.user.id == id) {
-                        None => vec![],
-                        Some(c) => c.messages.iter().map(|m| m.into()).collect(),
+                        None => {}
+                        Some(c) => {
+                            for m in c.messages.iter() {
+                                match m {
+                                    TuiMsg::Img(img) => {
+                                        for line in img.cache.lines() {
+                                            messages.push(line.into());
+                                        }
+                                    }
+                                    TuiMsg::JoinNotification(n) => {
+                                        messages.push(n.into());
+                                    }
+                                    TuiMsg::TextMsg(msg) => {
+                                        messages.push(msg.into());
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 ChannelKind::Room => match self.room_channels.iter().find(|c| &c.id == id) {
-                    None => vec![],
-                    Some(c) => c.messages.iter().map(|m| m.into()).collect(),
+                    None => {}
+                    Some(c) => {
+                        for m in c.messages.iter() {
+                            match m {
+                                TuiMsg::Img(img) => {
+                                    for line in img.cache.lines() {
+                                        messages.push(line.into());
+                                    }
+                                }
+                                TuiMsg::JoinNotification(n) => {
+                                    messages.push(n.into());
+                                }
+                                TuiMsg::TextMsg(msg) => {
+                                    messages.push(msg.into());
+                                }
+                            }
+                        }
+                    }
                 },
             };
         };
+
+        let mut scrollbar_state =
+            ScrollbarState::new(MESSAGES_SCROLL_RESERVE).position(self.main_scroll_offset.into());
+
+        let scrollbar: Scrollbar<'_> = Scrollbar::default()
+            .orientation(ScrollbarOrientation::VerticalRight)
+            .thumb_symbol("█");
+
+        let scrollbar_area = area_messages.inner(Margin::new(2, 0));
+        scrollbar.render(scrollbar_area, buf, &mut scrollbar_state);
+
         Paragraph::new(messages)
             .block(messages_block)
-            .wrap(Wrap { trim: true })
+            .alignment(ratatui::layout::Alignment::Left)
+            .wrap(Wrap { trim: false })
+            .scroll((self.main_scroll_offset as u16, 0))
             .render(area_messages, buf);
     }
 }

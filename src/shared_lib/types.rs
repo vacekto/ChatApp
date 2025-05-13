@@ -1,4 +1,6 @@
-use crate::client_lib::util::config::TCP_CHUNK_BUFFER_SIZE;
+use std::collections::VecDeque;
+
+use crate::client_lib::util::{config::TCP_CHUNK_BUFFER_SIZE, types::ImgRender};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -6,7 +8,6 @@ use uuid::Uuid;
 pub struct InitClientData {
     pub id: Uuid,
     pub username: String,
-    // pub room_channels: Vec<RoomChannel>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -38,7 +39,7 @@ pub struct Chunk {
 }
 
 #[derive(Deserialize, Serialize, Debug)]
-pub enum TuiServerMsg {
+pub enum ClientServerMsg {
     Text(TextMsg),
     FileChunk(Chunk),
     FileMetadata(FileMetadata),
@@ -46,7 +47,7 @@ pub enum TuiServerMsg {
 }
 
 #[derive(Deserialize, Serialize, Debug)]
-pub enum ServerTuiMsg {
+pub enum ServerClientMsg {
     Text(TextMsg),
     FileChunk(Chunk),
     FileMetadata(FileMetadata),
@@ -57,9 +58,10 @@ pub enum ServerTuiMsg {
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct FileMetadata {
-    pub name: String,
+    pub filename: String,
     pub stream_id: Uuid,
     pub to: Channel,
+    pub from: Channel,
     pub size: u64,
 }
 
@@ -67,20 +69,21 @@ pub struct FileMetadata {
 pub struct RoomChannel {
     pub id: Uuid,
     pub name: String,
-    pub messages: Vec<ChannelMsg>,
+    pub messages: VecDeque<TuiMsg>,
     pub users: Vec<User>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct DirectChannel {
     pub user: User,
-    pub messages: Vec<ChannelMsg>,
+    pub messages: VecDeque<TuiMsg>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
-pub enum ChannelMsg {
+pub enum TuiMsg {
     TextMsg(TextMsg),
     JoinNotification(User),
+    Img(ImgRender),
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]

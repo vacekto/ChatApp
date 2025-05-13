@@ -32,7 +32,7 @@ pub fn get_thread_runner() -> ThreadRunner {
 struct ThreadResult {
     pub thread_name: String,
     pub res: Result<(), anyhow::Error>,
-    throw: bool,
+    panic_after_done: bool,
 }
 
 #[derive(Debug)]
@@ -85,7 +85,7 @@ impl ThreadLogger {
                 }
             };
 
-            if result.throw {
+            if result.panic_after_done {
                 break;
             }
         }
@@ -101,7 +101,7 @@ impl ThreadRunner {
         tx: mpsc::Sender<ThreadResult>,
         thread_name: T,
         f: F,
-        throw: bool,
+        panic_after_done: bool,
     ) -> impl FnOnce()
     where
         F: FnOnce() -> Result<()>,
@@ -113,13 +113,13 @@ impl ThreadRunner {
             let res = ThreadResult {
                 thread_name: thread_name.as_ref().into(),
                 res,
-                throw,
+                panic_after_done,
             };
             tx.send(res).expect("Listener for ThreatLogger dropped!!");
         }
     }
 
-    pub fn spawn<F, T>(&self, thread_name: T, throw: bool, f: F)
+    pub fn spawn<F, T>(&self, thread_name: T, panic_after_done: bool, f: F)
     where
         F: FnOnce() -> Result<()> + Send + 'static,
         T: AsRef<str> + Send + 'static + Clone,
@@ -129,7 +129,7 @@ impl ThreadRunner {
 
         thread::Builder::new()
             .name(name)
-            .spawn(self.catch_thread_erros(tx, thread_name.clone(), f, throw))
+            .spawn(self.catch_thread_erros(tx, thread_name.clone(), f, panic_after_done))
             .expect(&format!("failed to buid {} thread", thread_name.as_ref()));
     }
 }

@@ -1,19 +1,27 @@
 use crate::{
-    client_lib::util::types::Contact,
-    shared_lib::types::{ChannelMsg, DirectChannel, RoomChannel, TextMsg, User},
+    client_lib::util::types::{Contact, ImgRender},
+    shared_lib::types::{DirectChannel, RoomChannel, TextMsg, TuiMsg, User},
 };
 
 use ratatui::{
     style::Stylize,
-    text::{Line, Span},
+    text::{Line, Span, Text},
 };
 
-impl From<&ChannelMsg> for Line<'static> {
-    fn from(msg: &ChannelMsg) -> Self {
+impl From<&TuiMsg> for Line<'static> {
+    fn from(msg: &TuiMsg) -> Self {
         match msg {
-            ChannelMsg::JoinNotification(notification) => Line::from(notification),
-            ChannelMsg::TextMsg(msg) => Line::from(msg),
+            TuiMsg::JoinNotification(notification) => Line::from(notification),
+            TuiMsg::TextMsg(msg) => Line::from(msg),
+            TuiMsg::Img(_mg) => todo!(),
         }
+    }
+}
+
+impl From<&ImgRender> for Text<'static> {
+    fn from(img: &ImgRender) -> Self {
+        let text = Span::from(img.cache.clone());
+        Text::from(text)
     }
 }
 

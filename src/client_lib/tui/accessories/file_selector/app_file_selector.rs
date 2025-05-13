@@ -2,16 +2,16 @@ use crate::{
     client_lib::{
         global_states::thread_logger::get_thread_runner,
         tui::app::app::App,
-        util::{config::TCP_CHUNK_BUFFER_SIZE, types::SelectorEntryKind},
+        util::{
+            config::TCP_CHUNK_BUFFER_SIZE,
+            types::{ChannelKind, SelectorEntryKind},
+        },
     },
-    shared_lib::{
-        config::PUBLIC_ROOM_ID,
-        types::{Channel, Chunk, FileMetadata, TuiServerMsg, User},
-    },
+    shared_lib::types::{Channel, Chunk, FileMetadata, ClientServerMsg, User},
 };
 use anyhow::Result;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use std::{io::Read, os::linux::fs::MetadataExt, path::PathBuf, str::FromStr};
+use std::{io::Read, os::linux::fs::MetadataExt, path::PathBuf};
 use uuid::Uuid;
 
 impl App {
@@ -22,8 +22,8 @@ impl App {
             }
             KeyCode::Char('`') => self.close_file_selector()?,
             KeyCode::Esc => self.close_file_selector()?,
-            KeyCode::Up => self.file_selector.select_up()?,
-            KeyCode::Down => self.file_selector.select_down()?,
+            KeyCode::Up => self.file_selector.move_up()?,
+            KeyCode::Down => self.file_selector.move_down()?,
             KeyCode::Left => self.file_selector.close_current_folder()?,
             KeyCode::Right => self.file_selector.open_folder()?,
             KeyCode::Enter => self.handle_file_selector_enter()?,
@@ -66,29 +66,45 @@ impl App {
     }
 
     fn send_file(&mut self, path: PathBuf) {
-        let th_runner = get_thread_runner();
+        let id_to = match self.active_channel.id {
+            None => return,
+            Some(id) => id,
+        };
 
-        let tx_tui_tcp = self.tx_tui_tcp.clone();
-        let id = self.id;
+        let tx_tui_tcp_msg = self.tx_tui_tcp_msg.clone();
+        let tx_tui_tcp_file = self.tx_tui_tcp_file.clone();
+
+        let id_from = self.id;
         let username = self.username.clone();
+
+        let to = match self.active_channel.kind {
+            ChannelKind::Direct => Channel::User(id_to),
+            ChannelKind::Room => Channel::Room(id_to),
+        };
+
+        let from = match self.active_channel.kind {
+            ChannelKind::Direct => Channel::User(id_from),
+            ChannelKind::Room => Channel::Room(id_to),
+        };
+
+        let th_runner = get_thread_runner();
 
         th_runner.spawn("file transmitter", false, move || {
             let mut file = std::fs::File::open(&path)?;
-
             let meta = file.metadata()?;
-
             let stream_id = Uuid::new_v4();
             let mut buffer = [0u8; TCP_CHUNK_BUFFER_SIZE];
 
             let meta = FileMetadata {
-                name: String::from(path.file_name().unwrap().to_str().unwrap()),
+                filename: String::from(path.file_name().unwrap().to_str().unwrap()),
                 stream_id,
-                to: Channel::Room(Uuid::from_str(PUBLIC_ROOM_ID).unwrap()),
+                to: to.clone(),
                 size: meta.st_size(),
+                from,
             };
 
-            let metadata = TuiServerMsg::FileMetadata(meta);
-            tx_tui_tcp.send(metadata)?;
+            let metadata = ClientServerMsg::FileMetadata(meta);
+            tx_tui_tcp_msg.send(metadata)?;
 
             loop {
                 let n = file.read(&mut buffer)?;
@@ -98,14 +114,13 @@ impl App {
                 let chunk = Chunk {
                     data: buffer.clone(),
                     from: User {
-                        id,
+                        id: id_from,
                         username: username.clone(),
                     },
-                    to: Channel::Room(Uuid::from_str(PUBLIC_ROOM_ID).unwrap()),
+                    to: to.clone(),
                     stream_id,
                 };
-                let chunk = TuiServerMsg::FileChunk(chunk);
-                tx_tui_tcp.send(chunk)?;
+                tx_tui_tcp_file.send(chunk)?;
             }
             Ok(())
         });

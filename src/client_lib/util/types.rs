@@ -1,5 +1,8 @@
-use crate::shared_lib::types::{DirectChannel, RoomChannel, ServerTuiMsg, TextMsg, User};
+use crate::shared_lib::types::{
+    AuthResponse, Channel, Chunk, DirectChannel, FileMetadata, RoomChannel, TextMsg, User,
+};
 use ratatui::crossterm::event::Event;
+use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs::File, path::PathBuf, sync::mpsc};
 use uuid::Uuid;
 
@@ -17,17 +20,27 @@ pub struct ActiveStream {
     pub file_handle: File,
     pub written: u64,
     pub size: u64,
-}
-pub enum ClientTuiMsg {
-    Text(ClientTextMessage),
+    pub file_name: String,
+    pub from: Channel,
 }
 
+#[derive(Debug)]
 pub enum TuiUpdate {
-    ServerMsg(ServerTuiMsg),
-    Event(Event),
+    CrosstermEvent(Event),
+    Img(ImgRender),
+    Text(TextMsg),
+    RoomUpdate(RoomChannel),
+    JoinRoom(RoomChannel),
+    Auth(AuthResponse),
 }
 
-pub struct ClientTextMessage {
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct ImgRender {
+    pub cache: String,
+    pub from: Channel,
+}
+
+pub struct TuiTextMessage {
     pub text: String,
     pub from: User,
 }
@@ -64,6 +77,12 @@ pub struct MpscChannel<T, R> {
 }
 
 #[derive(Debug)]
+pub struct CrossbemChannel<T, R> {
+    pub tx: crossbeam::channel::Sender<T>,
+    pub rx: crossbeam::channel::Receiver<R>,
+}
+
+#[derive(Debug)]
 pub struct SelectorEntry {
     pub name: String,
     pub kind: SelectorEntryKind,
@@ -81,4 +100,10 @@ pub struct FileSelector {
     pub selected_index: usize,
     pub entries: Vec<SelectorEntry>,
     pub scroll_offset: u16,
+}
+
+#[derive(Debug)]
+pub enum TcpStreamMsg {
+    FileChunk(Chunk),
+    FileMetadata(FileMetadata),
 }

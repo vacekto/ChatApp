@@ -16,8 +16,8 @@ use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 use uuid::Uuid;
 
 use crate::{
-    server_lib::util::config::log,
-    shared_lib::types::{Channel, InitClientData, ServerTuiMsg, TuiServerMsg, User},
+    server_lib::util::server_functions::log,
+    shared_lib::types::{Channel, ClientServerMsg, InitClientData, ServerClientMsg, User},
 };
 
 use super::util::{
@@ -189,23 +189,23 @@ impl<'a> ClientTask<'a> {
             Some(frame) => {
                 let data = frame.map_err(|err| DataParsingError::from(err))?;
 
-                let message: TuiServerMsg =
+                let message: ClientServerMsg =
                     bincode::deserialize(&data).map_err(|err| DataParsingError::from(err))?;
 
                 match message {
-                    TuiServerMsg::Text(msg) => {
+                    ClientServerMsg::Text(msg) => {
                         let data = serialize_text_msg(msg.clone())?;
                         self.send_data(data, msg.to).await
                     }
-                    TuiServerMsg::FileChunk(c) => {
+                    ClientServerMsg::FileChunk(c) => {
                         let data = serialize_file_chunk(c.clone())?;
                         self.send_data(data, c.to).await
                     }
-                    TuiServerMsg::FileMetadata(m) => {
+                    ClientServerMsg::FileMetadata(m) => {
                         let data = serialize_file_metadata(m.clone())?;
                         self.send_data(data, m.to).await
                     }
-                    TuiServerMsg::Logout => {
+                    ClientServerMsg::Logout => {
                         if let Err(err) = self.close_channel.tx.send(ClientTaskResult::Logout).await
                         {
                             log(err.into(), Some("rx close_channel dropped"))
@@ -241,13 +241,13 @@ impl<'a> ClientTask<'a> {
                     let room_id = transit.room.id;
                     self.room_channels.insert(room_id, transit.tx.clone());
 
-                    let msg = ServerTuiMsg::JoinRoom(transit.room.clone());
+                    let msg = ServerClientMsg::JoinRoom(transit.room.clone());
                     let bytes = bincode::serialize(&msg)?;
                     self.tcp_write.send(bytes.into()).await?;
 
                     let tx = self.spawn_room_communication_task(transit.tx, room_id);
 
-                    let msg = ServerTuiMsg::RoomUpdate(transit.room);
+                    let msg = ServerClientMsg::RoomUpdate(transit.room);
 
                     let bytes = bincode::serialize(&msg)?.into();
                     if let Err(err) = tx.send(bytes) {
@@ -282,7 +282,7 @@ impl<'a> ClientTask<'a> {
                     .get(&target_id)
                     .expect("room not found, implement err handaling");
                 if let Err(err) = tx.send(data) {
-                    log(err.into(), Some("sending data"));
+                    log(err.into(), Some("error sending data"));
                 };
             }
         };

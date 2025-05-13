@@ -1,16 +1,17 @@
 use anyhow::anyhow;
 use bytes::Bytes;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::str::FromStr;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task;
 use uuid::Uuid;
 
 use crate::shared_lib::config::{PUBLIC_ROOM_ID, PUBLIC_ROOM_NAME};
-use crate::shared_lib::types::{RoomChannel, ServerTuiMsg};
+use crate::shared_lib::types::{RoomChannel, ServerClientMsg};
 
-use super::util::config::{log, ROOM_CAPACITY};
+use super::util::config::ROOM_CAPACITY;
 use super::util::errors::DataParsingError;
+use super::util::server_functions::log;
 use super::util::types::{
     Client, ClientManagerMsg, DirectChannelTransit, ManagerClientMsg, RoomChannelTransit,
 };
@@ -55,7 +56,7 @@ pub fn spawn_manager_task(mut rx_client_manager: mpsc::Receiver<ClientManagerMsg
         let mut public_room = RoomChannel {
             id: Uuid::from_str(PUBLIC_ROOM_ID).unwrap(),
             name: PUBLIC_ROOM_NAME.into(),
-            messages: vec![],
+            messages: VecDeque::new(),
             users: vec![],
         };
 
@@ -95,7 +96,7 @@ pub fn spawn_manager_task(mut rx_client_manager: mpsc::Receiver<ClientManagerMsg
                         public_room.users.remove(pos);
                     };
 
-                    let msg = ServerTuiMsg::RoomUpdate(public_room.clone());
+                    let msg = ServerClientMsg::RoomUpdate(public_room.clone());
                     let serialized = match bincode::serialize(&msg) {
                         Ok(v) => v,
                         Err(err) => {

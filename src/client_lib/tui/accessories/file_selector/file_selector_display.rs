@@ -4,6 +4,7 @@ use crate::client_lib::util::{
     types::FileSelector,
 };
 use ratatui::{
+    buffer::Buffer,
     layout::Rect,
     style::{Color, Style, Stylize},
     symbols::border,
@@ -12,13 +13,13 @@ use ratatui::{
 };
 
 impl Widget for &mut FileSelector {
-    fn render(self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer) {
+    fn render(self, area: Rect, buf: &mut Buffer) {
         let width = 70;
         let height = 15;
 
-        let lower_bound = (self.scroll_offset + height - 2) as usize;
+        let upper_view_bound = (self.scroll_offset + height - 2) as usize;
 
-        if self.selected_index >= lower_bound {
+        if self.selected_index >= upper_view_bound {
             self.scroll_offset += 1;
         }
 

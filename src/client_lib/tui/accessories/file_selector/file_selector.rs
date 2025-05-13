@@ -44,7 +44,7 @@ impl FileSelector {
         Ok(())
     }
 
-    pub fn select_down(&mut self) -> Result<()> {
+    pub fn move_down(&mut self) -> Result<()> {
         let len = self.entries.len();
         let i = self.selected_index;
         if i != len - 1 {
@@ -54,7 +54,7 @@ impl FileSelector {
         Ok(())
     }
 
-    pub fn select_up(&mut self) -> Result<()> {
+    pub fn move_up(&mut self) -> Result<()> {
         let i = self.selected_index;
         if i != 0 {
             self.selected_index = i - 1;
@@ -77,14 +77,14 @@ impl FileSelector {
             selected: false,
         };
         let mut entries: Vec<SelectorEntry> = vec![back];
-        let dir = std::fs::read_dir(&self.current_location).unwrap();
+        let dir = std::fs::read_dir(&self.current_location)?;
 
         for file in dir {
-            let file = file.unwrap();
+            let file = file?;
             let filename = file.file_name();
             let filename = filename.to_string_lossy();
             let suffix = filename.split(".").last().unwrap();
-            let is_dir = file.file_type().unwrap().is_dir();
+            let is_dir = file.file_type()?.is_dir();
             if !FILES_FOR_TRANSFER.contains(&suffix) && !is_dir {
                 continue;
             };

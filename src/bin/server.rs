@@ -4,14 +4,15 @@ use chat_app::{
         client_task::ClientTask,
         manager_task::spawn_manager_task,
         util::{
-            config::{log, CLIENT_MANAGER_CAPACITY},
+            config::CLIENT_MANAGER_CAPACITY,
             errors::AuthError,
+            server_functions::log,
             types::{ClientManagerMsg, ClientTaskResult, UsernameCheck},
         },
     },
     shared_lib::{
         config::SERVER_ADDR,
-        types::{AuthData, AuthResponse, InitClientData, ServerTuiMsg},
+        types::{AuthData, AuthResponse, InitClientData, ServerClientMsg},
     },
 };
 use futures::{SinkExt, StreamExt};
@@ -56,7 +57,6 @@ async fn handle_connection(tcp: TcpStream, tx_client_manager: mpsc::Sender<Clien
     let mut tcp_write = FramedWrite::new(tcp_write, LengthDelimitedCodec::new());
 
     loop {
-        // let tcp_read = &mut tcp_read;
         let auth_bytes = match tcp_read.next().await {
             Some(r) => match r {
                 Ok(b) => b,
@@ -67,14 +67,13 @@ async fn handle_connection(tcp: TcpStream, tx_client_manager: mpsc::Sender<Clien
             },
             None => return, // client disconnected
         };
-
         let init_data = match authenticate(auth_bytes, &tx_client_manager).await {
             Ok(data) => data,
             Err(err) => match err {
                 AuthError::UsernameTaken(username) => {
                     let failure_msg = format!("Username {} is already taken", username);
                     let res = AuthResponse::Failure(failure_msg);
-                    let msg = ServerTuiMsg::Auth(res);
+                    let msg = ServerClientMsg::Auth(res);
 
                     let res_bytes = match bincode::serialize(&msg) {
                         Ok(b) => b,
@@ -114,7 +113,7 @@ async fn handle_connection(tcp: TcpStream, tx_client_manager: mpsc::Sender<Clien
         };
 
         let res = AuthResponse::Success(init_data.clone());
-        let msg = ServerTuiMsg::Auth(res);
+        let msg = ServerClientMsg::Auth(res);
         let res_bytes = match bincode::serialize(&msg) {
             Ok(b) => b,
             Err(err) => {
@@ -122,6 +121,7 @@ async fn handle_connection(tcp: TcpStream, tx_client_manager: mpsc::Sender<Clien
                 return;
             }
         };
+        println!("4");
 
         if let Err(err) = tcp_write.send(res_bytes.into()).await {
             log(err.into(), None);

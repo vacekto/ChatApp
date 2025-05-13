@@ -1,31 +1,27 @@
 use crate::{
     client_lib::{
-        global_states::app_state::get_global_state,
+        global_states::{app_state::get_global_state, thread_logger::get_thread_runner},
         util::{
-            config::{FILES_DIR, THEME_BG_LIGHT},
+            config::THEME_BG_LIGHT,
             types::{
-                ActiveChannel, ActiveScreen, ActiveStream, ChannelKind, FileSelector, TuiUpdate,
+                ActiveChannel, ActiveScreen, ActiveStream, ChannelKind, FileSelector, ImgRender,
+                MpscChannel, TuiUpdate,
             },
         },
     },
     shared_lib::types::{
-        Channel, ChannelMsg, Chunk, DirectChannel, FileMetadata, InitClientData, RoomChannel,
-        TextMsg, TuiServerMsg, User,
+        Channel, Chunk, ClientServerMsg, DirectChannel, InitClientData, RoomChannel, TextMsg,
+        TuiMsg, User,
     },
 };
-use anyhow::Result;
+use anyhow::{bail, Result};
 use ratatui::{
-    crossterm::event::{Event, KeyEventKind},
+    crossterm::event::{self, Event, KeyEventKind},
     style::{Color, Style},
     widgets::Paragraph,
     DefaultTerminal, Frame,
 };
-use std::{
-    collections::HashMap,
-    io::Write,
-    path::Path,
-    sync::mpsc::{self},
-};
+use std::collections::HashMap;
 use tui_textarea::TextArea;
 use uuid::Uuid;
 
@@ -35,21 +31,33 @@ pub struct App {
     pub exit: bool,
     pub login_text_area: TextArea<'static>,
     pub main_text_area: TextArea<'static>,
-    pub tx_tui_tcp: mpsc::Sender<TuiServerMsg>,
     pub room_channels: Vec<RoomChannel>,
     pub direct_channels: Vec<DirectChannel>,
     pub active_channel: ActiveChannel,
-    pub active_streams: HashMap<Uuid, ActiveStream>,
+    pub data_streams: HashMap<Uuid, ActiveStream>,
     pub active_screen: ActiveScreen,
     pub display_file_selector: bool,
     pub file_selector: FileSelector,
     pub login_notification: Option<String>,
+    pub main_scroll_offset: usize,
+    pub tui_channel: MpscChannel<TuiUpdate, TuiUpdate>,
+    pub tx_tui_tcp_msg: crossbeam::channel::Sender<ClientServerMsg>,
+    pub tx_tui_tcp_file: crossbeam::channel::Sender<Chunk>,
 }
 
 impl App {
     pub fn new() -> Self {
-        let state = get_global_state();
-        let tx_tui_tcp = state.tui_tcp_channel.tx.clone();
+        let mut state = get_global_state();
+
+        let tx_tui_tcp_msg = state.tui_tcp_msg_channel.tx.clone();
+        let tx_tui_tcp_file = state.tui_tcp_file_channel.tx.clone();
+        let tx_tui_update = state.tui_update_channel.tx.clone();
+        let rx_tui_update = state
+            .tui_update_channel
+            .rx
+            .take()
+            .expect("rx_tui_update is already taken");
+
         drop(state);
 
         App {
@@ -62,44 +70,73 @@ impl App {
                 id: None,
                 kind: ChannelKind::Room,
             },
-            tx_tui_tcp,
             direct_channels: vec![],
             room_channels: vec![],
-            active_streams: HashMap::new(),
+            data_streams: HashMap::new(),
             active_screen: ActiveScreen::Login,
             display_file_selector: false,
             file_selector: FileSelector::new(),
-            login_notification: Some("cosikdosi".into()),
+            login_notification: None,
+            main_scroll_offset: 0,
+            tui_channel: MpscChannel {
+                tx: tx_tui_update,
+                rx: Some(rx_tui_update),
+            },
+            tx_tui_tcp_msg,
+            tx_tui_tcp_file,
         }
     }
 
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
-        let (tx_tui, rx_tui) = mpsc::channel::<TuiUpdate>();
+        self.listen_for_events();
 
-        self.listen_for_server(tx_tui.clone())?;
-        self.listen_for_events(tx_tui.clone())?;
-
+        let rx_tui = self.tui_channel.rx.take().unwrap();
         while !self.exit {
             terminal.draw(|frame| self.draw(frame))?;
+
             match rx_tui.recv()? {
-                TuiUpdate::Event(e) => self.handle_events(e)?,
-                TuiUpdate::ServerMsg(msg) => self.handle_server_msg(msg)?,
+                TuiUpdate::CrosstermEvent(e) => self.handle_events(e)?,
+                TuiUpdate::Img(img) => self.handle_img_render(img)?,
+                TuiUpdate::Auth(data) => self.handle_auth_response(data),
+                TuiUpdate::JoinRoom(room) => self.handle_room_invitation(room),
+                TuiUpdate::RoomUpdate(room) => self.handle_room_update(room),
+                TuiUpdate::Text(msg) => self.handle_text_message(msg),
             }
         }
 
         Ok(())
     }
 
+    fn listen_for_events(&self) {
+        let th_runner = get_thread_runner();
+        let tx = self.tui_channel.tx.clone();
+
+        th_runner.spawn("events listener", true, move || loop {
+            let e = event::read()?;
+            tx.send(TuiUpdate::CrosstermEvent(e))?;
+        });
+    }
+
+    fn handle_img_render(&mut self, img: ImgRender) -> Result<()> {
+        let messages = match img.from {
+            Channel::Room(id) => self.get_room_messages(id),
+            Channel::User(id) => self.get_direct_messages(id),
+        };
+
+        match messages {
+            None => bail!("no messages found fo {:?}", img),
+            Some(m) => m.push_front(TuiMsg::Img(img)),
+        }
+
+        Ok(())
+    }
+
     fn draw(&mut self, frame: &mut Frame) {
-        let background = Paragraph::new("").style(
-            Style::default()
-                // .fg(Color::Rgb(MAIN_1.0, MAIN_1.1, MAIN_1.2))
-                .bg(Color::Rgb(
-                    THEME_BG_LIGHT.0,
-                    THEME_BG_LIGHT.1,
-                    THEME_BG_LIGHT.2,
-                )),
-        );
+        let background = Paragraph::new("").style(Style::default().bg(Color::Rgb(
+            THEME_BG_LIGHT.0,
+            THEME_BG_LIGHT.1,
+            THEME_BG_LIGHT.2,
+        )));
         frame.render_widget(background, frame.area());
         frame.render_widget(&mut *self, frame.area());
 
@@ -114,8 +151,12 @@ impl App {
     }
 
     pub fn logout(&mut self) -> Result<()> {
-        let msg = TuiServerMsg::Logout;
-        self.tx_tui_tcp.send(msg)?;
+        let state = get_global_state();
+        let tx_tui_tcp = state.tui_tcp_msg_channel.tx.clone();
+        drop(state);
+
+        let msg = ClientServerMsg::Logout;
+        tx_tui_tcp.send(msg)?;
         self.active_screen = ActiveScreen::Login;
         self.direct_channels = vec![];
         self.room_channels = vec![];
@@ -125,18 +166,18 @@ impl App {
 
     fn handle_events(&mut self, e: Event) -> Result<()> {
         match (&self.active_screen, self.display_file_selector) {
-            (_, true) => {
+            (ActiveScreen::Login, _) => {
                 match e {
                     Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                        self.handle_file_selector_key_event(key_event)?
+                        self.handle_login_key_event(key_event)?
                     }
                     _ => {}
                 };
             }
-            (ActiveScreen::Login, false) => {
+            (ActiveScreen::Main, true) => {
                 match e {
                     Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                        self.handle_login_key_event(key_event)?
+                        self.handle_file_selector_key_event(key_event)?
                     }
                     _ => {}
                 };
@@ -153,52 +194,17 @@ impl App {
 
         Ok(())
     }
-    pub fn handle_file_metadata(&mut self, meta: FileMetadata) -> Result<()> {
-        let path = String::from(FILES_DIR) + &meta.name;
-        let path = Path::new(&path);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
-        let file = std::fs::File::create(path)?;
-        let stream_id = meta.stream_id;
-
-        let stream = ActiveStream {
-            file_handle: file,
-            size: meta.size,
-            written: 0,
-        };
-
-        self.active_streams.insert(stream_id, stream);
-
-        Ok(())
-    }
-
-    pub fn handle_file_chunk(&mut self, chunk: Chunk) -> Result<()> {
-        let stream = self.active_streams.get_mut(&chunk.stream_id).unwrap();
-        let bytes_to_write =
-            std::cmp::min(chunk.data.len(), (stream.size - stream.written) as usize);
-
-        stream
-            .file_handle
-            .write_all(&chunk.data[0..bytes_to_write])?;
-        stream.written += chunk.data.len() as u64;
-
-        let written = stream.written;
-        let size = stream.size;
-
-        if written == size {
-            self.active_streams.remove(&chunk.stream_id).unwrap();
-        }
-
-        Ok(())
-    }
 
     pub fn send_message(&mut self) -> Result<()> {
         let id = match self.active_channel.id {
             None => return Ok(()),
             Some(id) => id,
         };
+
+        let state = get_global_state();
+        let tx_tui_tcp = state.tui_tcp_msg_channel.tx.clone();
+        drop(state);
+
         let text = self.main_text_area.lines().join("\n");
 
         let from = User {
@@ -214,12 +220,12 @@ impl App {
         let msg = TextMsg { text, from, to };
 
         if let Some(messages) = self.get_direct_messages(id) {
-            messages.push(ChannelMsg::TextMsg(msg.clone()));
+            messages.push_front(TuiMsg::TextMsg(msg.clone()));
         };
 
-        let msg = TuiServerMsg::Text(msg);
+        let msg = ClientServerMsg::Text(msg);
 
-        self.tx_tui_tcp.send(msg)?;
+        tx_tui_tcp.send(msg)?;
         self.main_text_area = TextArea::default();
 
         Ok(())
