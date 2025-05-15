@@ -1,17 +1,15 @@
-use anyhow::anyhow;
+use crate::shared_lib::config::{PUBLIC_ROOM_ID, PUBLIC_ROOM_NAME};
+use crate::shared_lib::types::{RoomChannel, ServerClientMsg};
 use bytes::Bytes;
+use log::{error, warn};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::str::FromStr;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task;
 use uuid::Uuid;
 
-use crate::shared_lib::config::{PUBLIC_ROOM_ID, PUBLIC_ROOM_NAME};
-use crate::shared_lib::types::{RoomChannel, ServerClientMsg};
-
 use super::util::config::ROOM_CAPACITY;
 use super::util::errors::DataParsingError;
-use super::util::server_functions::log;
 use super::util::types::{
     Client, ClientManagerMsg, DirectChannelTransit, ManagerClientMsg, RoomChannelTransit,
 };
@@ -83,7 +81,7 @@ pub fn spawn_manager_task(mut rx_client_manager: mpsc::Receiver<ClientManagerMsg
                     let msg = ManagerClientMsg::JoinRoom(room_transit);
 
                     if let Err(err) = client.tx.send(msg).await {
-                        log(err.into(), Some("initiating client"));
+                        error!("initiating client: {}", err);
                     };
 
                     clients.insert(client);
@@ -100,9 +98,9 @@ pub fn spawn_manager_task(mut rx_client_manager: mpsc::Receiver<ClientManagerMsg
                     let serialized = match bincode::serialize(&msg) {
                         Ok(v) => v,
                         Err(err) => {
-                            log(
-                                DataParsingError::from(err).into(),
-                                Some("ServerTuiMsg bincode parsing"),
+                            error!(
+                                "ServerTuiMsg bincode parsing: {}",
+                                DataParsingError::from(err),
                             );
                             continue;
                         }
@@ -115,7 +113,7 @@ pub fn spawn_manager_task(mut rx_client_manager: mpsc::Receiver<ClientManagerMsg
                     let client = match clients.get(&c.payload.to) {
                         Some(c) => c,
                         None => {
-                            log(anyhow!("Client not found in clients list"), None);
+                            warn!("Client not found in clients list");
                             continue;
                         }
                     };
@@ -126,24 +124,25 @@ pub fn spawn_manager_task(mut rx_client_manager: mpsc::Receiver<ClientManagerMsg
                         payload: c.payload,
                     };
 
-                    if let Err(err) = client
+                    if client
                         .tx
                         .send(ManagerClientMsg::EstablishDirectComm(transit))
                         .await
+                        .is_err()
                     {
-                        log(err.into(), Some("establishing direct communication"));
+                        error!("error during establishing direct communication 1");
                     };
 
                     let tx_cleint_client = match rx_ack.await {
                         Ok(v) => v,
-                        Err(err) => {
-                            log(err.into(), Some("establishing direct communication"));
+                        Err(_) => {
+                            error!("error during establishing direct communication 2");
                             continue;
                         }
                     };
 
                     if c.ack.send(tx_cleint_client).is_err() {
-                        log(anyhow!("establishing direct communication"), None);
+                        error!("error during establishing direct communication 3");
                     };
                 }
             };

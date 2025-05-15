@@ -21,11 +21,3 @@ pub fn serialize_file_metadata(data: FileMetadata) -> Result<Bytes, DataParsingE
     let serialized = bincode::serialize(&msg)?;
     Ok(Bytes::from(serialized))
 }
-
-pub fn log(err: anyhow::Error, msg: Option<&str>) {
-    println!("Server error occurred: {}", err);
-    if let Some(msg) = msg {
-        println!("msg: {}", msg);
-        // println!("backtrace: {}", err.backtrace());
-    }
-}

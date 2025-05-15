@@ -6,7 +6,6 @@ use chat_app::{
         util::{
             config::CLIENT_MANAGER_CAPACITY,
             errors::AuthError,
-            server_functions::log,
             types::{ClientManagerMsg, ClientTaskResult, UsernameCheck},
         },
     },
@@ -16,6 +15,7 @@ use chat_app::{
     },
 };
 use futures::{SinkExt, StreamExt};
+use log::{error, info};
 use std::error::Error;
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -27,11 +27,13 @@ use uuid::Uuid;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    env_logger::init();
+
     let listener = TcpListener::bind(SERVER_ADDR)
         .await
         .expect("Tcp listerner failed");
 
-    println!("listening on: {}", SERVER_ADDR);
+    info!("listening on: {}", SERVER_ADDR);
 
     let (tx_client_manager, rx_client_manager) =
         mpsc::channel::<ClientManagerMsg>(CLIENT_MANAGER_CAPACITY);
@@ -46,7 +48,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     handle_connection(tcp, tx_client_manager).await;
                 });
             }
-            Err(err) => log(err.into(), None),
+            Err(err) => error!("{}", err),
         }
     }
 }
@@ -61,7 +63,7 @@ async fn handle_connection(tcp: TcpStream, tx_client_manager: mpsc::Sender<Clien
             Some(r) => match r {
                 Ok(b) => b,
                 Err(err) => {
-                    log(err.into(), None);
+                    error!("{}", err);
                     return;
                 }
             },
@@ -78,32 +80,32 @@ async fn handle_connection(tcp: TcpStream, tx_client_manager: mpsc::Sender<Clien
                     let res_bytes = match bincode::serialize(&msg) {
                         Ok(b) => b,
                         Err(err) => {
-                            log(err.into(), None);
+                            error!("{}", err);
                             return;
                         }
                     };
 
                     if let Err(err) = tcp_write.send(res_bytes.into()).await {
-                        log(err.into(), None);
+                        error!("{}", err);
                         return;
                     };
                     continue;
                 }
                 _ => {
-                    log(err.into(), None);
+                    error!("{}", err);
                     let failure_msg = String::from("Internal server error");
                     let res = AuthResponse::Failure(failure_msg);
 
                     let res_bytes = match bincode::serialize(&res) {
                         Ok(b) => b,
                         Err(err) => {
-                            log(err.into(), None);
+                            error!("{}", err);
                             return;
                         }
                     };
 
                     if let Err(err) = tcp_write.send(res_bytes.into()).await {
-                        log(err.into(), None);
+                        error!("{}", err);
                         return;
                     };
 
@@ -117,13 +119,13 @@ async fn handle_connection(tcp: TcpStream, tx_client_manager: mpsc::Sender<Clien
         let res_bytes = match bincode::serialize(&msg) {
             Ok(b) => b,
             Err(err) => {
-                log(err.into(), None);
+                error!("{}", err);
                 return;
             }
         };
 
         if let Err(err) = tcp_write.send(res_bytes.into()).await {
-            log(err.into(), None);
+            error!("{}", err);
             return;
         };
         let client: ClientTask = ClientTask::new(

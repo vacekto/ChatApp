@@ -1,8 +1,8 @@
-use std::collections::HashMap;
-
-use anyhow::anyhow;
+use anyhow::Result;
 use bytes::{Bytes, BytesMut};
 use futures::{SinkExt, StreamExt};
+use log::{error, warn};
+use std::collections::HashMap;
 use tokio::{
     net::tcp::{OwnedReadHalf, OwnedWriteHalf},
     select,
@@ -15,10 +15,7 @@ use tokio::{
 use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 use uuid::Uuid;
 
-use crate::{
-    server_lib::util::server_functions::log,
-    shared_lib::types::{Channel, ClientServerMsg, InitClientData, ServerClientMsg, User},
-};
+use crate::shared_lib::types::{Channel, ClientServerMsg, InitClientData, ServerClientMsg, User};
 
 use super::util::{
     config::{COMM_CLIENT_CAPACITY, DIRECT_CAPACITY, MANAGER_CLIENT_CAPACITY},
@@ -92,7 +89,7 @@ impl<'a> ClientTask<'a> {
         };
 
         if let Err(err) = tx_client_manager.send(ClientManagerMsg::Init(client)).await {
-            log(err.into(), Some("client_manager not listening"));
+            error!("{err}");
         };
 
         let manager = MpscChannel {
@@ -119,12 +116,12 @@ impl<'a> ClientTask<'a> {
         loop {
             select! {
                 result = self.tcp_read.next() => if let Err(err) = self.handle_tcp_msg(result).await {
-                    log(err.into(), Some("Error reading data to client in tcp stream instance."));
+                    error!("data processing error: {}", err);
                     return ClientTaskResult::Close;
                 },
 
                 result = self.client_manager_channel.rx.recv() => if let Err(err) = self.handle_manager_msg(result).await{
-                    log(err.into(), Some("Transmitter from manager client dropped."));
+                    warn!("tx_manager_client dropped : {}", err);
                     return ClientTaskResult::Close
                 },
 
@@ -132,13 +129,13 @@ impl<'a> ClientTask<'a> {
                     let result = match result {
                         Some(r) => r,
                         None => {
-                            log(anyhow!("Transmitter of communication task to client task for bytes of data dropped. Should be in comm_client_data_channel field!!!"), None);
+                            warn!("tx_comm_client_data dropped, Should be in comm_client_data_channel field!!!");
                             return ClientTaskResult::Close;
                         }
                     };
 
                     if let Err(err) = self.tcp_write.send(result).await{
-                        log(err.into(), Some("Error writing data to client in tcp stream instance."));
+                        error!("Error writing data to TCP, :{}",err);
                         return ClientTaskResult::Close;
                     };
                 }
@@ -147,7 +144,7 @@ impl<'a> ClientTask<'a> {
                     let result = match result {
                         Some(r) => r,
                         None => {
-                            log(anyhow!("Transmitter of communication task to client task for channel drop notification dropped. Should be in comm_client_drop_channel field!!!"), None);
+                            warn!("tx_comm_client_cleanup dropped. Should be in comm_client_drop_channel field!!!");
                             return ClientTaskResult::Close;
                         }
                     };
@@ -158,7 +155,7 @@ impl<'a> ClientTask<'a> {
                 result = self.close_channel.rx.recv() => {
                     let msg = ClientManagerMsg::ClientDropped(self.id);
                     if let Err(err) = self.client_manager_channel.tx.send(msg).await {
-                        log(err.into(), Some("rx_client_manager dropped"))
+                        error!("rx_client_manager dropped, error: {}", err)
                     };
 
                     if let Some(res) = result {
@@ -208,14 +205,14 @@ impl<'a> ClientTask<'a> {
                     ClientServerMsg::Logout => {
                         if let Err(err) = self.close_channel.tx.send(ClientTaskResult::Logout).await
                         {
-                            log(err.into(), Some("rx close_channel dropped"))
+                            error!("rx close_channel dropped, {}", err)
                         };
                     }
                 };
             }
             None => {
                 if let Err(err) = self.close_channel.tx.send(ClientTaskResult::Close).await {
-                    log(err.into(), Some("rx close_channel dropped"))
+                    error!("rx close_channel dropped: {}", err)
                 };
             }
         }
@@ -233,8 +230,9 @@ impl<'a> ClientTask<'a> {
                         .insert(c.payload.from, c.payload.tx_client_client);
 
                     let tx_client_client = self.spawn_direct_communication_task(c.payload.from);
-                    if c.ack.send(tx_client_client).is_err() {
-                        log(anyhow!("establishing direct communication"), None);
+
+                    if let Err(err) = c.ack.send(tx_client_client) {
+                        error!("oneshot rx not dropped during establishing direct communication. transit data: {:?}", err);
                     };
                 }
                 ManagerClientMsg::JoinRoom(transit) => {
@@ -251,7 +249,7 @@ impl<'a> ClientTask<'a> {
 
                     let bytes = bincode::serialize(&msg)?.into();
                     if let Err(err) = tx.send(bytes) {
-                        log(err.into(), Some("joining room"));
+                        error!("joining room notification transmit error: {}", err);
                     };
                 }
             };
@@ -273,16 +271,22 @@ impl<'a> ClientTask<'a> {
                 };
 
                 if let Err(err) = tx.send(data).await {
-                    log(err.into(), Some("sending data"));
+                    error!("{}", err);
+                    self.direct_channels.remove(&target_id);
                 };
             }
             Channel::Room(target_id) => {
-                let tx = self
-                    .room_channels
-                    .get(&target_id)
-                    .expect("room not found, implement err handaling");
+                let tx = self.room_channels.get(&target_id);
+
+                let tx = match tx {
+                    Some(tx) => tx,
+                    None => {
+                        todo!("room not found, implement err handaling");
+                    }
+                };
                 if let Err(err) = tx.send(data) {
-                    log(err.into(), Some("error sending data"));
+                    warn!("error sending data: {}", err);
+                    self.room_channels.remove(&target_id);
                 };
             }
         };
@@ -307,19 +311,22 @@ impl<'a> ClientTask<'a> {
             .send(ClientManagerMsg::EstablishDirectComm(channel_transit))
             .await
         {
-            log(err.into(), None);
+            warn!("tx_client_manager dropped, {}", err);
             return;
         };
 
         let new_direct = match rx_ack.await {
             Err(err) => {
-                log(err.into(), Some("establishing direct communication"));
+                warn!(
+                    "oneshot tx during establishing direct communication dropped, {}",
+                    err
+                );
                 return;
             }
             Ok(tx) => tx,
         };
         if let Err(err) = new_direct.send(data).await {
-            log(err.into(), Some("establishing direct communication"));
+            warn!("establishing direct communication error, rx is dropped after established comm_comm link, {}", err);
         };
 
         let direct_channels = &mut self.direct_channels;
@@ -378,7 +385,7 @@ impl<'a> ClientTask<'a> {
                                     tx_comm_client_drop.send(Channel::Room(room_id)).await.ok();
                                 },
                                 RecvError::Lagged(n) =>{
-                                    log(err.into(), Some(&format!("room receiver not handling received messages, missed: {}", n)));
+                                    warn!("room receiver not handling received messages, missed: {}", n);
 
                                 }
                             };
@@ -395,3 +402,5 @@ impl<'a> ClientTask<'a> {
         tx_client_room
     }
 }
+
+// error!, warn!, info!, debug!, trace!
