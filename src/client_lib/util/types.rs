@@ -107,3 +107,9 @@ pub enum TcpStreamMsg {
     FileChunk(Chunk),
     FileMetadata(FileMetadata),
 }
+
+#[derive(Debug)]
+pub enum Focus {
+    Contacts,
+    Messages,
+}

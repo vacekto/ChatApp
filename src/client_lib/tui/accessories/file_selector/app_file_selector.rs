@@ -7,7 +7,7 @@ use crate::{
             types::{ChannelKind, SelectorEntryKind},
         },
     },
-    shared_lib::types::{Channel, Chunk, FileMetadata, ClientServerMsg, User},
+    shared_lib::types::{Channel, Chunk, ClientServerMsg, FileMetadata, User},
 };
 use anyhow::Result;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -20,7 +20,11 @@ impl App {
             KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.exit()
             }
-            KeyCode::Char('`') => self.close_file_selector()?,
+            KeyCode::Char('f') | KeyCode::Char('F')
+                if key_event.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                self.close_file_selector()?
+            }
             KeyCode::Esc => self.close_file_selector()?,
             KeyCode::Up => self.file_selector.move_up()?,
             KeyCode::Down => self.file_selector.move_down()?,

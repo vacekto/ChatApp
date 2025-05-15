@@ -1,5 +1,5 @@
 use crate::client_lib::util::{
-    config::{THEME_BG_DARK, THEME_BORDER},
+    config::{THEME_GRAY_GREEN_DARK, THEME_GREEN},
     functions::pad_line_to_width,
     types::FileSelector,
 };
@@ -36,11 +36,11 @@ impl Widget for &mut FileSelector {
             " File selector ",
             Style::default()
                 .fg(Color::Rgb(
-                    THEME_BG_DARK.0,
-                    THEME_BG_DARK.1,
-                    THEME_BG_DARK.2,
+                    THEME_GRAY_GREEN_DARK.0,
+                    THEME_GRAY_GREEN_DARK.1,
+                    THEME_GRAY_GREEN_DARK.2,
                 ))
-                .bg(Color::Rgb(THEME_BORDER.0, THEME_BORDER.1, THEME_BORDER.2))
+                .bg(Color::Rgb(THEME_GREEN.0, THEME_GREEN.1, THEME_GREEN.2))
                 .bold(),
         );
 
@@ -49,9 +49,9 @@ impl Widget for &mut FileSelector {
             .borders(Borders::ALL)
             .border_set(border::PLAIN)
             .border_style(Style::default().fg(Color::Rgb(
-                THEME_BORDER.0,
-                THEME_BORDER.1,
-                THEME_BORDER.2,
+                THEME_GREEN.0,
+                THEME_GREEN.1,
+                THEME_GREEN.2,
             )));
 
         let files: Vec<Line> = self
@@ -64,9 +64,9 @@ impl Widget for &mut FileSelector {
 
         Paragraph::new(files)
             .style(Style::default().bg(Color::Rgb(
-                THEME_BG_DARK.0,
-                THEME_BG_DARK.1,
-                THEME_BG_DARK.2,
+                THEME_GRAY_GREEN_DARK.0,
+                THEME_GRAY_GREEN_DARK.1,
+                THEME_GRAY_GREEN_DARK.2,
             )))
             .block(selector_block)
             .scroll(scroll_offset)

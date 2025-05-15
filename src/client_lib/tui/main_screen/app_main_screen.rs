@@ -3,7 +3,7 @@ use crate::{
         tui::app::app::App,
         util::{
             config::MESSAGES_SCROLL_RESERVE,
-            types::{ActiveScreen, ChannelKind},
+            types::{ActiveScreen, ChannelKind, Focus},
         },
     },
     shared_lib::{
@@ -121,23 +121,74 @@ impl App {
     }
 
     pub fn handle_main_key_event(&mut self, key_event: KeyEvent) -> Result<()> {
+        match self.focus {
+            Focus::Contacts => self.handle_contacts_event(key_event)?,
+            Focus::Messages => self.handle_messages_event(key_event)?,
+        };
+
+        Ok(())
+    }
+
+    fn handle_contacts_event(&mut self, key_event: KeyEvent) -> Result<()> {
         match key_event.code {
             KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.exit()
             }
-            KeyCode::Char('`') => self.display_file_selector = true,
-            KeyCode::Enter => self.send_message()?,
+            KeyCode::Left | KeyCode::Right if key_event.modifiers.contains(KeyModifiers::SHIFT) => {
+                self.switch_focus()
+            }
+            KeyCode::Char('f') | KeyCode::Char('F')
+                if key_event.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                self.display_file_selector = true
+            }
             KeyCode::Esc => self.logout()?,
             KeyCode::Up => self.move_active_channel_up(),
             KeyCode::Down => self.move_active_channel_down(),
             KeyCode::Left => self.switch_channel_kind(),
             KeyCode::Right => self.switch_channel_kind(),
+            KeyCode::Enter => self.send_message()?,
             _ => {
                 self.main_text_area.input(key_event);
             }
         };
-
         Ok(())
+    }
+
+    fn handle_messages_event(&mut self, key_event: KeyEvent) -> Result<()> {
+        match key_event.code {
+            KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.exit()
+            }
+            KeyCode::Left | KeyCode::Right if key_event.modifiers.contains(KeyModifiers::SHIFT) => {
+                self.switch_focus()
+            }
+            KeyCode::Char('f') | KeyCode::Char('F')
+                if key_event.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                self.display_file_selector = true
+            }
+            KeyCode::Enter => self.send_message()?,
+            KeyCode::Esc => self.logout()?,
+            KeyCode::Up => self.move_scrollbar_up(),
+            KeyCode::Down => self.move_scrollbar_down(),
+            _ => {
+                self.main_text_area.input(key_event);
+            }
+        };
+        Ok(())
+    }
+
+    fn move_scrollbar_up(&mut self) {
+        if self.main_scroll_offset > 0 {
+            self.main_scroll_offset -= 3;
+        }
+    }
+
+    fn move_scrollbar_down(&mut self) {
+        if self.main_scroll_offset < MESSAGES_SCROLL_RESERVE {
+            self.main_scroll_offset += 3;
+        }
     }
 
     pub fn switch_channel_kind(&mut self) {
@@ -168,10 +219,6 @@ impl App {
     }
 
     pub fn move_active_channel_up(&mut self) {
-        if self.main_scroll_offset > 0 {
-            self.main_scroll_offset -= 3;
-        }
-
         match (&self.active_channel.kind, self.active_channel.id) {
             (ChannelKind::Direct, Some(id)) => {
                 let index = self.direct_channels.iter().position(|c| c.user.id == id);
@@ -213,10 +260,6 @@ impl App {
     }
 
     pub fn move_active_channel_down(&mut self) {
-        if self.main_scroll_offset < MESSAGES_SCROLL_RESERVE {
-            self.main_scroll_offset += 3;
-        }
-
         match (&self.active_channel.kind, self.active_channel.id) {
             (ChannelKind::Direct, Some(id)) => {
                 let index = self.direct_channels.iter().position(|c| c.user.id == id);

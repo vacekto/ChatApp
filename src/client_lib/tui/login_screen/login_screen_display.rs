@@ -7,7 +7,7 @@ use ratatui::{
     widgets::{Block, Widget},
 };
 
-use crate::client_lib::{tui::app::app::App, util::config::THEME_BORDER};
+use crate::client_lib::{tui::app::app::App, util::config::THEME_GREEN};
 
 impl App {
     pub fn render_login_screen(&mut self, area: Rect, buf: &mut Buffer) {
@@ -34,8 +34,7 @@ impl App {
         let title_msg = Span::styled(
             " Username ",
             Style::default()
-                .fg(Color::Rgb(THEME_BORDER.0, THEME_BORDER.1, THEME_BORDER.2))
-                // .bg(Color::Rgb(THEME_BORDER.0, THEME_BORDER.1, THEME_BORDER.2))
+                .fg(Color::Rgb(THEME_GREEN.0, THEME_GREEN.1, THEME_GREEN.2))
                 .bold(),
         );
 
@@ -50,9 +49,9 @@ impl App {
             .title(title_msg)
             .border_set(border::PLAIN)
             .border_style(Style::default().fg(Color::Rgb(
-                THEME_BORDER.0,
-                THEME_BORDER.1,
-                THEME_BORDER.2,
+                THEME_GREEN.0,
+                THEME_GREEN.1,
+                THEME_GREEN.2,
             )))
             .render(upper_rect, buf);
 

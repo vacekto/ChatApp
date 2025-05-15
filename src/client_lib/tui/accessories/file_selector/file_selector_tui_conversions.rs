@@ -1,5 +1,5 @@
 use crate::client_lib::util::{
-    config::{THEME_SELECT, THEME_SELECT_BG},
+    config::{THEME_YELLOW_1, THEME_YELLOW_2},
     types::SelectorEntry,
 };
 use ratatui::{
@@ -14,11 +14,15 @@ impl From<&SelectorEntry> for Line<'static> {
         if s.selected {
             return line.style(
                 Style::default()
-                    .fg(Color::Rgb(THEME_SELECT.0, THEME_SELECT.1, THEME_SELECT.2))
+                    .fg(Color::Rgb(
+                        THEME_YELLOW_1.0,
+                        THEME_YELLOW_1.1,
+                        THEME_YELLOW_1.2,
+                    ))
                     .bg(Color::Rgb(
-                        THEME_SELECT_BG.0,
-                        THEME_SELECT_BG.1,
-                        THEME_SELECT_BG.2,
+                        THEME_YELLOW_2.0,
+                        THEME_YELLOW_2.1,
+                        THEME_YELLOW_2.2,
                     ))
                     .bold(),
             );

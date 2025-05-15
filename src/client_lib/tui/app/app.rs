@@ -2,10 +2,10 @@ use crate::{
     client_lib::{
         global_states::{app_state::get_global_state, thread_logger::get_thread_runner},
         util::{
-            config::THEME_BG_LIGHT,
+            config::THEME_GRAY_GREEN_LIGHT,
             types::{
-                ActiveChannel, ActiveScreen, ActiveStream, ChannelKind, FileSelector, ImgRender,
-                MpscChannel, TuiUpdate,
+                ActiveChannel, ActiveScreen, ActiveStream, ChannelKind, FileSelector, Focus,
+                ImgRender, MpscChannel, TuiUpdate,
             },
         },
     },
@@ -43,6 +43,7 @@ pub struct App {
     pub tui_channel: MpscChannel<TuiUpdate, TuiUpdate>,
     pub tx_tui_tcp_msg: crossbeam::channel::Sender<ClientServerMsg>,
     pub tx_tui_tcp_file: crossbeam::channel::Sender<Chunk>,
+    pub focus: Focus,
 }
 
 impl App {
@@ -84,6 +85,7 @@ impl App {
             },
             tx_tui_tcp_msg,
             tx_tui_tcp_file,
+            focus: Focus::Messages,
         }
     }
 
@@ -105,6 +107,13 @@ impl App {
         }
 
         Ok(())
+    }
+
+    pub fn switch_focus(&mut self) {
+        self.focus = match self.focus {
+            Focus::Contacts => Focus::Messages,
+            Focus::Messages => Focus::Contacts,
+        };
     }
 
     fn listen_for_events(&self) {
@@ -133,9 +142,9 @@ impl App {
 
     fn draw(&mut self, frame: &mut Frame) {
         let background = Paragraph::new("").style(Style::default().bg(Color::Rgb(
-            THEME_BG_LIGHT.0,
-            THEME_BG_LIGHT.1,
-            THEME_BG_LIGHT.2,
+            THEME_GRAY_GREEN_LIGHT.0,
+            THEME_GRAY_GREEN_LIGHT.1,
+            THEME_GRAY_GREEN_LIGHT.2,
         )));
         frame.render_widget(background, frame.area());
         frame.render_widget(&mut *self, frame.area());

@@ -65,7 +65,7 @@ async fn handle_connection(tcp: TcpStream, tx_client_manager: mpsc::Sender<Clien
                     return;
                 }
             },
-            None => return, // client disconnected
+            None => return,
         };
         let init_data = match authenticate(auth_bytes, &tx_client_manager).await {
             Ok(data) => data,
@@ -121,7 +121,6 @@ async fn handle_connection(tcp: TcpStream, tx_client_manager: mpsc::Sender<Clien
                 return;
             }
         };
-        println!("4");
 
         if let Err(err) = tcp_write.send(res_bytes.into()).await {
             log(err.into(), None);

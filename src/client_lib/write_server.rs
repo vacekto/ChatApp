@@ -3,9 +3,7 @@ use std::io::Write;
 use anyhow::{Context, Result};
 use crossbeam::select;
 
-use crate::{
-    client_lib::global_states::console_logger::console_log, shared_lib::types::ClientServerMsg,
-};
+use crate::shared_lib::types::ClientServerMsg;
 
 use super::global_states::app_state::get_global_state;
 
@@ -20,7 +18,6 @@ pub fn write_to_server() -> Result<()> {
     loop {
         if let Ok(msg) = rx_msg.try_recv() {
             let framed: Vec<u8> = frame_tcp_msg(msg)?;
-            console_log("msg");
             tcp.write_all(&framed)?;
         }
 
