@@ -9,9 +9,12 @@ use crate::{
             },
         },
     },
-    shared_lib::types::{
-        Channel, Chunk, ClientServerMsg, DirectChannel, InitClientData, RoomChannel, TextMsg,
-        TuiMsg, User,
+    shared_lib::{
+        config::PUBLIC_ROOM_ID,
+        types::{
+            Channel, Chunk, ClientRoomUpdateTransit, ClientServerMsg, DirectChannel,
+            InitPersistedUserData, InitUserData, RoomChannel, TextMsg, TuiMsg, User,
+        },
     },
 };
 use anyhow::{bail, Result};
@@ -21,7 +24,10 @@ use ratatui::{
     widgets::Paragraph,
     DefaultTerminal, Frame,
 };
-use std::collections::HashMap;
+use std::{
+    collections::{HashMap, VecDeque},
+    str::FromStr,
+};
 use tui_textarea::TextArea;
 use uuid::Uuid;
 
@@ -100,13 +106,64 @@ impl App {
                 TuiUpdate::CrosstermEvent(e) => self.handle_events(e)?,
                 TuiUpdate::Img(img) => self.handle_img_render(img)?,
                 TuiUpdate::Auth(data) => self.handle_auth_response(data),
-                TuiUpdate::JoinRoom(room) => self.handle_room_invitation(room),
-                TuiUpdate::RoomUpdate(room) => self.handle_room_update(room),
+                TuiUpdate::UserJoinedRoom(update) => self.handle_user_joined_room(update),
+                TuiUpdate::UserLeftRoom(update) => self.handle_user_left_room(update),
                 TuiUpdate::Text(msg) => self.handle_text_message(msg),
+                TuiUpdate::UserInitData(data) => self.handle_init_data(data),
             }
         }
 
         Ok(())
+    }
+
+    fn handle_user_left_room(&mut self, update: ClientRoomUpdateTransit) {
+        if let Some(room) = self
+            .room_channels
+            .iter_mut()
+            .find(|r| r.id == update.room_id)
+        {
+            room.users.retain_mut(|u| u.id != update.user.id);
+
+            if room.id == Uuid::from_str(PUBLIC_ROOM_ID).unwrap() {
+                self.direct_channels.retain(|r| r.user.id != update.user.id);
+                {}
+            }
+        };
+    }
+
+    fn handle_user_joined_room(&mut self, update: ClientRoomUpdateTransit) {
+        if let Some(room) = self
+            .room_channels
+            .iter_mut()
+            .find(|r| r.id == update.room_id)
+        {
+            room.users.push(update.user.clone());
+
+            let new_channel = DirectChannel {
+                messages: VecDeque::new(),
+                user: update.user,
+            };
+
+            self.direct_channels.push(new_channel);
+        };
+    }
+
+    fn handle_init_data(&mut self, data: InitPersistedUserData) {
+        for mut room in data.rooms {
+            room.users.retain(|u| u.username != self.username);
+
+            if room.id == Uuid::from_str(PUBLIC_ROOM_ID).unwrap() {
+                for user in &room.users {
+                    let dir = DirectChannel {
+                        messages: VecDeque::new(),
+                        user: user.clone(),
+                    };
+                    self.direct_channels.push(dir);
+                }
+            }
+
+            self.room_channels.push(room);
+        }
     }
 
     pub fn switch_focus(&mut self) {
@@ -154,7 +211,7 @@ impl App {
         }
     }
 
-    pub fn init(&mut self, init: InitClientData) {
+    pub fn init(&mut self, init: InitUserData) {
         self.username = init.username;
         self.id = init.id;
     }

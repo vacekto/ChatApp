@@ -15,5 +15,13 @@ pub enum AuthError {
     #[error("Username {0} already taken")]
     UsernameTaken(String),
     #[error("{0}")]
+    Unrecoverable(String),
+}
+
+#[derive(Error, Debug)]
+pub enum ClientInitError {
+    #[error(transparent)]
+    DataParsing(#[from] DataParsingError),
+    #[error("{0}")]
     Unexpected(String),
 }

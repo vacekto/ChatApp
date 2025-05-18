@@ -1,148 +1,83 @@
-use crate::shared_lib::config::{PUBLIC_ROOM_ID, PUBLIC_ROOM_NAME};
-use crate::shared_lib::types::{RoomChannel, ServerClientMsg};
-use bytes::Bytes;
-use log::{error, warn};
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::str::FromStr;
-use tokio::sync::{broadcast, mpsc, oneshot};
+use super::util::config::ROOM_CAPACITY;
+use super::util::types::{Client, ClientManagerMsg, GetRoomTransmitterTransit, ManagerClientMsg};
+use crate::server_lib::util::server_functions::get_location;
+use log::{debug, error, warn};
+use std::collections::HashMap;
+use tokio::sync::{broadcast, mpsc};
 use tokio::task;
 use uuid::Uuid;
 
-use super::util::config::ROOM_CAPACITY;
-use super::util::errors::DataParsingError;
-use super::util::types::{
-    Client, ClientManagerMsg, DirectChannelTransit, ManagerClientMsg, RoomChannelTransit,
-};
-
-struct Clients {
-    clients: HashMap<Uuid, Client>,
-    usernames: HashSet<String>,
-}
-
-impl Clients {
-    fn new() -> Self {
-        Self {
-            clients: HashMap::new(),
-            usernames: HashSet::new(),
-        }
-    }
-
-    fn insert(&mut self, c: Client) {
-        self.usernames.insert(c.user.username.clone());
-        self.clients.insert(c.user.id, c);
-    }
-
-    fn remove(&mut self, id: &Uuid) {
-        if let Some(c) = self.clients.remove(id) {
-            self.usernames.remove(&c.user.username);
-        };
-    }
-
-    fn get(&self, id: &Uuid) -> Option<&Client> {
-        self.clients.get(id)
-    }
-
-    fn contains(&self, username: String) -> bool {
-        self.usernames.contains(&username)
-    }
-}
-
 pub fn spawn_manager_task(mut rx_client_manager: mpsc::Receiver<ClientManagerMsg>) {
     task::spawn(async move {
-        let mut clients = Clients::new();
+        let mut connected_users: HashMap<Uuid, Client> = HashMap::new();
 
-        let mut public_room = RoomChannel {
-            id: Uuid::from_str(PUBLIC_ROOM_ID).unwrap(),
-            name: PUBLIC_ROOM_NAME.into(),
-            messages: VecDeque::new(),
-            users: vec![],
-        };
-
-        let (tx_public_room, _) = broadcast::channel::<Bytes>(ROOM_CAPACITY);
-
-        loop {
+        'manager_loop: loop {
             let msg = rx_client_manager.recv().await.expect(
                 "all tx_client_manager transmitters got dropped, one needs to live in server.rs to clone for new connections!!",
             );
 
             match msg {
                 ClientManagerMsg::CheckUsername(data) => {
-                    let res = clients.contains(data.username);
-                    let _ = data.tx.send(res);
-                }
-                ClientManagerMsg::Init(client) => {
-                    public_room.users.push(client.user.clone());
+                    let res = connected_users
+                        .iter()
+                        .find(|c| c.1.user.username == data.username)
+                        .is_some();
 
-                    let room_transit = RoomChannelTransit {
-                        room: public_room.clone(),
-                        tx: tx_public_room.clone(),
-                    };
-
-                    let msg = ManagerClientMsg::JoinRoom(room_transit);
-
-                    if let Err(err) = client.tx.send(msg).await {
-                        error!("initiating client: {}", err);
-                    };
-
-                    clients.insert(client);
+                    data.tx.send(res).ok();
                 }
 
+                ClientManagerMsg::ClientConnected(client) => {
+                    connected_users.insert(client.user.id, client);
+                }
+                ClientManagerMsg::GetOnlineUsers(t) => {
+                    let users = connected_users.values().map(|c| c.user.clone()).collect();
+                    if t.ack.send(users).is_err() {
+                        error!(
+                            "oneshot rx dropped before receiving data: {}",
+                            get_location()
+                        );
+                    };
+                }
                 ClientManagerMsg::ClientDropped(id) => {
-                    clients.remove(&id);
-
-                    if let Some(pos) = public_room.users.iter().position(|u| u.id == id) {
-                        public_room.users.remove(pos);
-                    };
-
-                    let msg = ServerClientMsg::RoomUpdate(public_room.clone());
-                    let serialized = match bincode::serialize(&msg) {
-                        Ok(v) => v,
-                        Err(err) => {
-                            error!(
-                                "ServerTuiMsg bincode parsing: {}",
-                                DataParsingError::from(err),
-                            );
-                            continue;
-                        }
-                    };
-
-                    tx_public_room.send(serialized.into()).ok();
+                    connected_users.remove(&id);
                 }
+                ClientManagerMsg::EstablishRoomComm(t) => {
+                    for user in &t.room_users {
+                        if let Some(client) = connected_users.get(&user.id) {
+                            let transit = GetRoomTransmitterTransit {
+                                room_id: t.room_id,
+                                tx_ack: t.ack,
+                            };
+                            let msg = ManagerClientMsg::GetRoomTransmitter(transit);
+                            if let Err(err) = client.tx.send(msg).await {
+                                warn!("connected clients hasmap is not synhronized with running client_tasts!!, {} {}", err, get_location())
+                            };
+                            continue 'manager_loop;
+                        };
+                    }
 
+                    let (room_tx, _) = broadcast::channel(ROOM_CAPACITY);
+                    t.ack.send(room_tx).ok();
+                }
                 ClientManagerMsg::EstablishDirectComm(c) => {
-                    let client = match clients.get(&c.payload.to) {
+                    let client = match connected_users.get(&c.payload.to) {
                         Some(c) => c,
                         None => {
-                            warn!("Client not found in clients list");
+                            warn!("Client not found among online clients, {}", get_location());
                             continue;
                         }
-                    };
-                    let (tx_ack, rx_ack) = oneshot::channel::<mpsc::Sender<Bytes>>();
-
-                    let transit = DirectChannelTransit {
-                        ack: tx_ack,
-                        payload: c.payload,
                     };
 
                     if client
                         .tx
-                        .send(ManagerClientMsg::EstablishDirectComm(transit))
+                        .send(ManagerClientMsg::EstablishDirectComm(c))
                         .await
                         .is_err()
                     {
-                        error!("error during establishing direct communication 1");
-                    };
-
-                    let tx_cleint_client = match rx_ack.await {
-                        Ok(v) => v,
-                        Err(_) => {
-                            error!("error during establishing direct communication 2");
-                            continue;
-                        }
-                    };
-
-                    if c.ack.send(tx_cleint_client).is_err() {
-                        error!("error during establishing direct communication 3");
+                        error!(
+                            "error during establishing direct communication, {}",
+                            get_location()
+                        );
                     };
                 }
             };

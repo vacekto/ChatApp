@@ -34,11 +34,14 @@ pub fn listen_for_server() -> Result<()> {
                 tx_tcp_stream.send(TcpStreamMsg::FileChunk(chunk))?
             }
             ServerClientMsg::Auth(auth) => tx_tui_update.send(TuiUpdate::Auth(auth))?,
-            ServerClientMsg::JoinRoom(room) => tx_tui_update.send(TuiUpdate::JoinRoom(room))?,
-            ServerClientMsg::RoomUpdate(update) => {
-                tx_tui_update.send(TuiUpdate::RoomUpdate(update))?
+            ServerClientMsg::UserJoinedRoom(update) => {
+                tx_tui_update.send(TuiUpdate::UserJoinedRoom(update))?
             }
             ServerClientMsg::Text(msg) => tx_tui_update.send(TuiUpdate::Text(msg))?,
+            ServerClientMsg::Init(data) => tx_tui_update.send(TuiUpdate::UserInitData(data))?,
+            ServerClientMsg::UserLeftRoom(update) => {
+                tx_tui_update.send(TuiUpdate::UserLeftRoom(update))?
+            }
         }
     }
 }

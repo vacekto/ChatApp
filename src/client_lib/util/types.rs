@@ -1,5 +1,6 @@
 use crate::shared_lib::types::{
-    AuthResponse, Channel, Chunk, DirectChannel, FileMetadata, RoomChannel, TextMsg, User,
+    AuthResponse, Channel, Chunk, ClientRoomUpdateTransit, DirectChannel, FileMetadata,
+    InitPersistedUserData, RoomChannel, TextMsg, User,
 };
 use ratatui::crossterm::event::Event;
 use serde::{Deserialize, Serialize};
@@ -29,9 +30,10 @@ pub enum TuiUpdate {
     CrosstermEvent(Event),
     Img(ImgRender),
     Text(TextMsg),
-    RoomUpdate(RoomChannel),
-    JoinRoom(RoomChannel),
+    UserJoinedRoom(ClientRoomUpdateTransit),
+    UserLeftRoom(ClientRoomUpdateTransit),
     Auth(AuthResponse),
+    UserInitData(InitPersistedUserData),
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]

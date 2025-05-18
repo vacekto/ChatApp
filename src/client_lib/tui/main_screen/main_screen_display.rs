@@ -180,21 +180,21 @@ impl App {
             )))
             .render(area_input, buf);
 
-        let contacts_border_style = match self.focus {
+        let style_contacts_border = match self.focus {
             Focus::Contacts => {
                 Style::default().fg(Color::Rgb(THEME_GREEN.0, THEME_GREEN.1, THEME_GREEN.2))
             }
             Focus::Messages => Style::default().fg(Color::Rgb(
-                THEME_YELLOW_2.0,
-                THEME_YELLOW_2.1,
-                THEME_YELLOW_2.2,
+                THEME_GRAY_GREEN_DARK.0,
+                THEME_GRAY_GREEN_DARK.1,
+                THEME_GRAY_GREEN_DARK.2,
             )),
         };
 
         let contacts_block = Block::bordered()
             .title(title_contacts)
             .border_set(border::PLAIN)
-            .border_style(contacts_border_style);
+            .border_style(style_contacts_border);
 
         let mut contacts: Vec<Line> = vec![];
 

@@ -1,11 +1,10 @@
-use std::collections::VecDeque;
-
 use crate::client_lib::util::{config::TCP_CHUNK_BUFFER_SIZE, types::ImgRender};
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct InitClientData {
+pub struct InitUserData {
     pub id: Uuid,
     pub username: String,
 }
@@ -51,9 +50,21 @@ pub enum ServerClientMsg {
     Text(TextMsg),
     FileChunk(Chunk),
     FileMetadata(FileMetadata),
-    RoomUpdate(RoomChannel),
-    JoinRoom(RoomChannel),
+    UserJoinedRoom(ClientRoomUpdateTransit),
+    UserLeftRoom(ClientRoomUpdateTransit),
     Auth(AuthResponse),
+    Init(InitPersistedUserData),
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct ClientRoomUpdateTransit {
+    pub user: User,
+    pub room_id: Uuid,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct InitPersistedUserData {
+    pub rooms: Vec<RoomChannel>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -93,6 +104,6 @@ pub struct AuthData {
 
 #[derive(Deserialize, Serialize, Debug)]
 pub enum AuthResponse {
-    Success(InitClientData),
+    Success(InitUserData),
     Failure(String),
 }
