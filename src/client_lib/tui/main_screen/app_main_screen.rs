@@ -3,24 +3,33 @@ use crate::{
         tui::app::app::App,
         util::{
             config::MESSAGES_SCROLL_RESERVE,
-            types::{ActiveScreen, ChannelKind, Focus},
+            types::{ActiveScreen, ChannelKind, Focus, Notification},
         },
     },
     shared_lib::types::{AuthResponse, Channel, TextMsg, TuiMsg},
 };
 use anyhow::Result;
-use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use std::collections::VecDeque;
+use tui_textarea::TextArea;
 use uuid::Uuid;
 
 impl App {
     pub fn handle_auth_response(&mut self, data: AuthResponse) {
         match data {
-            AuthResponse::Failure(msg) => self.login_notification = Some(msg),
+            AuthResponse::Failure(msg) => {
+                self.login_screen_notification = Some(Notification::Failure(msg))
+            }
             AuthResponse::Success(init) => {
                 self.username = init.username;
                 self.id = init.id;
-                self.active_screen = ActiveScreen::Main
+                self.active_screen = ActiveScreen::Main;
+
+                self.username_ta_login = TextArea::default();
+                self.password_ta_login = TextArea::default();
+                self.password_ta_register = TextArea::default();
+                self.username_ta_register = TextArea::default();
+                self.repeat_password_ta = TextArea::default();
             }
         }
     }
@@ -117,10 +126,15 @@ impl App {
         }
     }
 
-    pub fn handle_main_key_event(&mut self, key_event: KeyEvent) -> Result<()> {
-        match self.focus {
-            Focus::Contacts => self.handle_contacts_event(key_event)?,
-            Focus::Messages => self.handle_messages_event(key_event)?,
+    pub fn handle_main_key_event(&mut self, event: Event) -> Result<()> {
+        match event {
+            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
+                match self.focus {
+                    Focus::Contacts => self.handle_contacts_event(key_event)?,
+                    Focus::Messages => self.handle_messages_event(key_event)?,
+                };
+            }
+            _ => {}
         };
 
         Ok(())
@@ -131,9 +145,7 @@ impl App {
             KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.exit()
             }
-            KeyCode::Left | KeyCode::Right if key_event.modifiers.contains(KeyModifiers::SHIFT) => {
-                self.switch_focus()
-            }
+            KeyCode::Tab => self.switch_focus(),
             KeyCode::Char('f') | KeyCode::Char('F')
                 if key_event.modifiers.contains(KeyModifiers::CONTROL) =>
             {
@@ -157,9 +169,7 @@ impl App {
             KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.exit()
             }
-            KeyCode::Left | KeyCode::Right if key_event.modifiers.contains(KeyModifiers::SHIFT) => {
-                self.switch_focus()
-            }
+            KeyCode::Tab => self.switch_focus(),
             KeyCode::Char('f') | KeyCode::Char('F')
                 if key_event.modifiers.contains(KeyModifiers::CONTROL) =>
             {

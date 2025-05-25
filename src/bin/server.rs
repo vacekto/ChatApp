@@ -1,29 +1,21 @@
+#![feature(error_generic_member_access)]
+
 use chat_app::{
     server_lib::{
-        client_task::ClientTask,
+        handle_connection::handle_connection,
         manager_task::spawn_manager_task,
         persistence_task::spawn_persistence_task,
         util::{
             config::{CLIENT_MANAGER_CAPACITY, CLIENT_PERSISTENCE_CAPACITY},
-            errors::AuthError,
-            server_functions::{authenticate, get_location},
-            types::{ClientManagerMsg, ClientPersistenceMsg, ClientTaskResult},
+            server_functions::get_location,
+            types::server_data_types::{ClientManagerMsg, ClientPersistenceMsg},
         },
     },
-    shared_lib::{
-        config::SERVER_ADDR,
-        types::{AuthData, AuthResponse, ServerClientMsg},
-    },
+    shared_lib::config::SERVER_ADDR,
 };
-use futures::{SinkExt, StreamExt};
-use log::{error, info, warn};
+use log::{error, info};
 use std::error::Error;
-use tokio::{
-    net::{TcpListener, TcpStream},
-    sync::mpsc,
-    task,
-};
-use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
+use tokio::{net::TcpListener, sync::mpsc, task};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -53,119 +45,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let tx_client_persistence = tx_client_persistence.clone();
 
                 task::spawn(async move {
-                    handle_connection(tcp, tx_client_manager, tx_client_persistence).await;
+                    if let Err(err) =
+                        handle_connection(tcp, tx_client_manager, tx_client_persistence).await
+                    {
+                        error!("closing connection due to: {err}");
+                    };
                 });
             }
-            Err(err) => error!("{}, {}", err, get_location()),
-        }
-    }
-}
-
-async fn handle_connection(
-    tcp: TcpStream,
-    tx_client_manager: mpsc::Sender<ClientManagerMsg>,
-    tx_client_persistence: mpsc::Sender<ClientPersistenceMsg>,
-) {
-    let (tcp_read, tcp_write) = tcp.into_split();
-    let mut tcp_read = FramedRead::new(tcp_read, LengthDelimitedCodec::new());
-    let mut tcp_write = FramedWrite::new(tcp_write, LengthDelimitedCodec::new());
-
-    loop {
-        let auth_bytes = match tcp_read.next().await {
-            Some(r) => match r {
-                Ok(b) => b,
-                Err(err) => {
-                    error!("{},  {}", err, get_location());
-                    return;
-                }
-            },
-            None => return,
-        };
-
-        let auth_data: AuthData = match bincode::deserialize(&auth_bytes)
-            .map_err(|err| AuthError::DataParsing(err.into()))
-        {
-            Ok(d) => d,
-            Err(err) => {
-                warn!("error reading auth data, {}", err);
-                return;
-            }
-        };
-
-        let init_data = match authenticate(auth_data, &tx_client_manager).await {
-            Ok(data) => data,
-            Err(err) => match err {
-                AuthError::UsernameTaken(username) => {
-                    let failure_msg = format!("Username {} is already taken", username);
-                    let res = AuthResponse::Failure(failure_msg);
-                    let msg = ServerClientMsg::Auth(res);
-
-                    let res_bytes = match bincode::serialize(&msg) {
-                        Ok(b) => b,
-                        Err(err) => {
-                            error!("{}, {}", err, get_location());
-                            return;
-                        }
-                    };
-
-                    if let Err(err) = tcp_write.send(res_bytes.into()).await {
-                        error!("{}", err);
-                        return;
-                    };
-                    continue;
-                }
-                _ => {
-                    error!("{}", err);
-                    let failure_msg = String::from("Internal server error");
-                    let res = AuthResponse::Failure(failure_msg);
-
-                    let res_bytes = match bincode::serialize(&res) {
-                        Ok(b) => b,
-                        Err(err) => {
-                            error!("{}, {}", err, get_location());
-                            return;
-                        }
-                    };
-
-                    if let Err(err) = tcp_write.send(res_bytes.into()).await {
-                        error!("{}, {}", err, get_location());
-                        return;
-                    };
-
-                    return;
-                }
-            },
-        };
-
-        let res = AuthResponse::Success(init_data.clone());
-        let msg = ServerClientMsg::Auth(res);
-        let res_bytes = match bincode::serialize(&msg) {
-            Ok(b) => b,
-            Err(err) => {
-                error!("{}, {}", err, get_location());
-                return;
-            }
-        };
-
-        if let Err(err) = tcp_write.send(res_bytes.into()).await {
-            error!("{}, {}", err, get_location());
-            return;
-        };
-
-        let client: ClientTask = ClientTask::new(
-            init_data,
-            &mut tcp_read,
-            &mut tcp_write,
-            tx_client_manager.clone(),
-            tx_client_persistence.clone(),
-        )
-        .await;
-
-        let res = client.run().await;
-
-        match res {
-            ClientTaskResult::Close => return,
-            ClientTaskResult::Logout => continue,
+            Err(err) => error!("Error establishing connection: {}, {}", err, get_location()),
         }
     }
 }

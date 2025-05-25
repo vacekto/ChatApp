@@ -1,6 +1,6 @@
 use crate::shared_lib::types::{
-    AuthResponse, Channel, Chunk, ClientRoomUpdateTransit, DirectChannel, FileMetadata,
-    InitPersistedUserData, RoomChannel, TextMsg, User,
+    AuthResponse, Channel, Chunk, DirectChannel, FileMetadata, RegisterResponse, RoomUpdateTransit,
+    TextMsg, TuiRoom, User, UserClientData,
 };
 use ratatui::crossterm::event::Event;
 use serde::{Deserialize, Serialize};
@@ -30,10 +30,18 @@ pub enum TuiUpdate {
     CrosstermEvent(Event),
     Img(ImgRender),
     Text(TextMsg),
-    UserJoinedRoom(ClientRoomUpdateTransit),
-    UserLeftRoom(ClientRoomUpdateTransit),
+    UserJoinedRoom(RoomUpdateTransit),
+    UserLeftRoom(RoomUpdateTransit),
     Auth(AuthResponse),
-    UserInitData(InitPersistedUserData),
+    User(UserClientData),
+    UserDisconnected(User),
+    UserConnected(User),
+    RegisterResponse(RegisterResponse),
+}
+
+pub enum Notification {
+    Success(String),
+    Failure(String),
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -49,7 +57,7 @@ pub struct TuiTextMessage {
 
 pub enum Contact<'a> {
     Direct(&'a DirectChannel),
-    Room(&'a RoomChannel),
+    Room(&'a TuiRoom),
 }
 
 pub enum ChannelKind {
@@ -64,7 +72,20 @@ pub struct ActiveChannel {
 
 pub enum ActiveScreen {
     Main,
+    Entry,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ActiveEntryInput {
+    Username,
+    Password,
+    RepeatPassword,
+}
+
+#[derive(PartialEq)]
+pub enum ActiveEntryScreen {
     Login,
+    Register,
 }
 
 #[derive(Clone)]

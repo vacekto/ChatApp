@@ -1,28 +1,25 @@
 use super::util::{
     config::{COMM_CLIENT_CAPACITY, DIRECT_CAPACITY, MANAGER_CLIENT_CAPACITY},
-    errors::{ClientInitError, DataParsingError},
     server_functions::{serialize_file_chunk, serialize_file_metadata, serialize_text_msg},
     types::{
-        BroadcastChannel, Client, ClientManagerMsg, ClientPersistenceMsg, ClientTaskResult,
-        DirectChannelTransitPayload, EstablishDirectCommTransit, EstablishRoomCommTransit,
-        GetUserDataTransit, ManagerClientMsg, MpscChannel, ServerRoomUpdateTransit,
+        server_data_types::{
+            BroadcastChannel, Client, ClientManagerMsg, ClientPersistenceMsg, ClientTaskResult,
+            DirectChannelTransitPayload, EstablishDirectCommTransit, EstablishRoomCommTransit,
+            ManagerClientMsg, MpscChannel, UserServerData,
+        },
+        server_error_types::BincodeErr,
+        server_error_wrapper_types::DataParsingErrorOriginal,
     },
 };
 use crate::{
-    server_lib::util::server_functions::get_location,
-    shared_lib::{
-        config::PUBLIC_ROOM_ID,
-        types::{
-            Channel, ClientRoomUpdateTransit, ClientServerMsg, InitPersistedUserData, InitUserData,
-            RoomChannel, ServerClientMsg, User,
-        },
-    },
+    server_lib::util::types::server_error_types::Bt,
+    shared_lib::types::{Channel, ClientServerTuiMsg, RoomChannel, ServerClientMsg, User},
 };
 use anyhow::Result;
 use bytes::{Bytes, BytesMut};
 use futures::{future::join_all, SinkExt, StreamExt};
-use log::{debug, error, info, warn};
-use std::{collections::HashMap, str::FromStr};
+use log::{debug, error, warn};
+use std::collections::HashMap;
 use tokio::{
     net::tcp::{OwnedReadHalf, OwnedWriteHalf},
     select,
@@ -47,16 +44,16 @@ pub struct ClientTask<'a> {
     tcp_write: &'a mut FramedWrite<OwnedWriteHalf, LengthDelimitedCodec>,
     room_channels: HashMap<Uuid, broadcast::Sender<Bytes>>,
     direct_channels: HashMap<Uuid, mpsc::Sender<Bytes>>,
-    tx_client_persistence: mpsc::Sender<ClientPersistenceMsg>,
+    _tx_client_persistence: mpsc::Sender<ClientPersistenceMsg>,
 }
 
 impl<'a> ClientTask<'a> {
     pub async fn new(
-        init_data: InitUserData,
+        user: User,
         tcp_read: &'a mut FramedRead<OwnedReadHalf, LengthDelimitedCodec>,
         tcp_write: &'a mut FramedWrite<OwnedWriteHalf, LengthDelimitedCodec>,
         tx_client_manager: mpsc::Sender<ClientManagerMsg>,
-        tx_client_persistence: mpsc::Sender<ClientPersistenceMsg>,
+        _tx_client_persistence: mpsc::Sender<ClientPersistenceMsg>,
     ) -> Self {
         let room_channels = HashMap::new();
         let direct_channels = HashMap::new();
@@ -88,44 +85,29 @@ impl<'a> ClientTask<'a> {
             rx: rx_close,
         };
 
-        let client = Client {
-            tx: tx_manager_client,
-            user: User {
-                username: init_data.username.clone(),
-                id: init_data.id,
-            },
-        };
-
-        // let public_room_details = ServerRoomUpdateTransit {
-        //     room_id: Uuid::from_str(PUBLIC_ROOM_ID).unwrap(),
-        //     user: User {
-        //         username: init_data.username.clone(),
-        //         id: init_data.id,
-        //     },
-        // };
-
-        // if let Err(err) = tx_client_persistence
-        //     .send(ClientPersistenceMsg::UserJoinedRoom(public_room_details))
-        //     .await
-        // {
-        //     error!("{},  {}", err, get_location());
-        // }
-
-        if let Err(err) = tx_client_manager
-            .send(ClientManagerMsg::ClientConnected(client))
-            .await
-        {
-            error!("{},  {}", err, get_location());
-        };
-
         let client_manager_channel = MpscChannel {
             tx: tx_client_manager,
             rx: rx_manager_client,
         };
 
+        let client = Client {
+            tx: tx_manager_client,
+            user: User {
+                username: user.username.clone(),
+                id: user.id,
+            },
+        };
+
+        if let Err(err) = client_manager_channel
+            .tx
+            .send(ClientManagerMsg::ClientConnected(client))
+            .await
+        {
+            error!("rx_client_manager dropped {},  {}", err, Bt::new());
+        };
         Self {
-            username: init_data.username,
-            id: init_data.id,
+            username: user.username,
+            id: user.id,
             direct_channels,
             room_channels,
             tcp_read,
@@ -135,86 +117,29 @@ impl<'a> ClientTask<'a> {
             client_comm_cleanup_channel,
             comm_client_drop_channel,
             close_channel,
-            tx_client_persistence,
+            _tx_client_persistence,
         }
     }
 
-    async fn init(&mut self) -> Result<(), ClientInitError> {
-        let (tx_ack, rx_ack) = oneshot::channel();
-
-        let msg = ClientPersistenceMsg::GetUserData(GetUserDataTransit {
-            tx: tx_ack,
-            user: User {
-                username: self.username.clone(),
-                id: self.id,
-            },
-        });
-
-        self.tx_client_persistence.send(msg).await.map_err(|err| {
-            ClientInitError::Unexpected(format!(
-                "tx_client_persistence   dropped: {err} {}",
-                get_location()
-            ))
-        })?;
-
-        let persited_data = rx_ack.await.map_err(|err| {
-            ClientInitError::Unexpected(format!(
-                "oneshot transmitter for client init got dropped: {err} {}",
-                get_location()
-            ))
-        })?;
-
+    async fn init(&mut self, persited_data: UserServerData) -> Result<(), BincodeErr> {
         let room_transmitters = self
             .get_room_transmitters(persited_data.rooms.clone())
             .await;
 
         for (id, tx) in room_transmitters {
-            let transit = ClientRoomUpdateTransit {
-                room_id: id,
-                user: User {
-                    username: self.username.clone(),
-                    id: self.id,
-                },
-            };
+            let tx = self.spawn_room_communication_task(tx, id);
 
-            let msg = ServerClientMsg::UserJoinedRoom(transit);
-            let serialized =
-                bincode::serialize(&msg).map_err(|err| DataParsingError::Bincode(err))?;
+            let msg = ServerClientMsg::UserConnected(User {
+                username: self.username.clone(),
+                id: self.id,
+            });
+
+            let serialized = bincode::serialize(&msg).map_err(|err| BincodeErr(err, Bt::new()))?;
 
             let bytes = Bytes::from(serialized);
             tx.send(bytes).ok();
 
-            let tx = self.spawn_room_communication_task(tx, id);
             self.room_channels.insert(id, tx);
-        }
-
-        let init_data = InitPersistedUserData {
-            rooms: persited_data.rooms,
-        };
-
-        let msg = ServerClientMsg::Init(init_data);
-
-        let serialized = bincode::serialize(&msg).map_err(|err| DataParsingError::Bincode(err))?;
-
-        self.tcp_write
-            .send(serialized.into())
-            .await
-            .map_err(|err| DataParsingError::TcpReadWrite(err))?;
-
-        let public_room_details = ServerRoomUpdateTransit {
-            room_id: Uuid::from_str(PUBLIC_ROOM_ID).unwrap(),
-            user: User {
-                username: self.username.clone(),
-                id: self.id,
-            },
-        };
-
-        if let Err(err) = self
-            .tx_client_persistence
-            .send(ClientPersistenceMsg::UserJoinedRoom(public_room_details))
-            .await
-        {
-            error!("{},  {}", err, get_location());
         }
 
         Ok(())
@@ -226,28 +151,26 @@ impl<'a> ClientTask<'a> {
     ) -> Vec<(Uuid, broadcast::Sender<Bytes>)> {
         let mut handles = Vec::with_capacity(rooms.len());
 
-        for room in rooms {
+        for mut room in rooms {
             let (tx_ack, rx_ack) = oneshot::channel::<broadcast::Sender<Bytes>>();
             let tx_client_manager = self.client_manager_channel.tx.clone();
 
+            room.users.retain(|u| u.id != self.id);
             let msg = ClientManagerMsg::EstablishRoomComm(EstablishRoomCommTransit {
                 room_id: room.id,
                 room_users: room.users,
                 ack: tx_ack,
             });
 
+            if let Err(err) = tx_client_manager.send(msg).await {
+                warn!("client_manager_channel.rx dropped, {} {}", err, Bt::new());
+            };
             let handle = task::spawn(async move {
-                if let Err(err) = tx_client_manager.send(msg).await {
-                    warn!(
-                        "client_manager_channel.rx dropped, {} {}",
-                        err,
-                        get_location()
-                    );
-                };
                 match rx_ack.await {
                     Ok(t) => Ok((room.id, t)),
                     Err(_) => Err(format!(
-                        "tokio task failed to fetch \"{}\" room transmitter ",
+                        "tokio task failed to fetch \"{}\" room transmitter {}",
+                        Bt::new(),
                         { room.name }
                     )),
                 }
@@ -265,15 +188,18 @@ impl<'a> ClientTask<'a> {
                     Ok(t) => room_channels.push(t),
                     Err(err_msg) => error!("{err_msg}"),
                 },
-                Err(err) => error!("fetching of room broadcast transmitter failed: {}", err),
+                Err(err) => error!(
+                    "Task handle fetching room tx failed to resolve: {err} {}",
+                    Bt::new()
+                ),
             }
         }
 
         room_channels
     }
 
-    pub async fn run(mut self) -> ClientTaskResult {
-        if let Err(err) = self.init().await {
+    pub async fn run(mut self, init_data: UserServerData) -> ClientTaskResult {
+        if let Err(err) = self.init(init_data).await {
             error!("{err}");
             self.cleanup().await;
             return ClientTaskResult::Close;
@@ -295,7 +221,7 @@ impl<'a> ClientTask<'a> {
                     let result = match result {
                         Some(r) => r,
                         None => {
-                            warn!("tx_comm_client_data dropped, Should be in comm_client_data_channel field!!!, {}",  get_location());
+                            warn!("tx_comm_client_data dropped, Should be in comm_client_data_channel field!!!, {}",  Bt::new());
                             break ClientTaskResult::Close;
                         }
                     };
@@ -310,7 +236,7 @@ impl<'a> ClientTask<'a> {
                     let result = match result {
                         Some(r) => r,
                         None => {
-                            warn!("tx_comm_client_cleanup dropped. Should be in comm_client_drop_channel field!!!, {}", get_location());
+                            warn!("tx_comm_client_cleanup dropped. Should be in comm_client_drop_channel field!!!, {}", Bt::new());
                             break ClientTaskResult::Close;
                         }
                     };
@@ -334,59 +260,26 @@ impl<'a> ClientTask<'a> {
 
         let msg = ClientManagerMsg::ClientDropped(self.id);
         if let Err(err) = self.client_manager_channel.tx.send(msg).await {
-            error!(
-                "rx_client_manager dropped, error: {}, {}",
-                err,
-                get_location()
-            )
+            error!("rx_client_manager dropped, error: {}, {}", err, Bt::new())
         };
 
-        for (id, tx) in &self.room_channels {
-            let server_update = ServerRoomUpdateTransit {
-                room_id: *id,
-                user: User {
-                    username: self.username.clone(),
-                    id: self.id,
-                },
-            };
-
-            let msg = ClientPersistenceMsg::UserLeftRoom(server_update);
-            if let Err(err) = self.tx_client_persistence.send(msg).await {
-                error!(
-                    "tx_client_persistence dropped, error: {}, {}",
-                    err,
-                    get_location()
-                )
-            };
-
-            let tui_update = ClientRoomUpdateTransit {
-                room_id: *id,
-                user: User {
-                    username: self.username.clone(),
-                    id: self.id,
-                },
-            };
-
-            let msg = ServerClientMsg::UserLeftRoom(tui_update);
+        for (_, tx) in &self.room_channels {
+            let msg = ServerClientMsg::UserDisconnected(User {
+                username: self.username.clone(),
+                id: self.id,
+            });
             let bytes = match bincode::serialize(&msg) {
                 Ok(s) => Bytes::from(s),
                 Err(err) => {
                     error!(
-                        "Bincode error, user left notification not sent, error: {} {}",
-                        err,
-                        get_location(),
+                        "User left notification not sent, error: {err} {}",
+                        Bt::new(),
                     );
                     return;
                 }
             };
 
-            if let Err(err) = tx.send(bytes) {
-                error!(
-                    "Channel transmitter dropped preemptively, {}, \"user left\" notification nots sent  {}",
-                    err,
-                    get_location()
-                );
-            };
+            tx.send(bytes).ok();
         }
     }
 
@@ -404,38 +297,38 @@ impl<'a> ClientTask<'a> {
     async fn handle_tcp_msg(
         &mut self,
         result: Option<Result<BytesMut, std::io::Error>>,
-    ) -> Result<(), DataParsingError> {
+    ) -> Result<(), DataParsingErrorOriginal> {
         match result {
             Some(frame) => {
-                let data = frame.map_err(|err| DataParsingError::from(err))?;
+                let data = frame.map_err(|err| DataParsingErrorOriginal::from(err))?;
 
-                let message: ClientServerMsg =
-                    bincode::deserialize(&data).map_err(|err| DataParsingError::from(err))?;
+                let message: ClientServerTuiMsg = bincode::deserialize(&data)
+                    .map_err(|err| DataParsingErrorOriginal::from(err))?;
 
                 match message {
-                    ClientServerMsg::Text(msg) => {
+                    ClientServerTuiMsg::Text(msg) => {
                         let data = serialize_text_msg(msg.clone())?;
                         self.send_data(data, msg.to).await
                     }
-                    ClientServerMsg::FileChunk(c) => {
+                    ClientServerTuiMsg::FileChunk(c) => {
                         let data = serialize_file_chunk(c.clone())?;
                         self.send_data(data, c.to).await
                     }
-                    ClientServerMsg::FileMetadata(m) => {
+                    ClientServerTuiMsg::FileMetadata(m) => {
                         let data = serialize_file_metadata(m.clone())?;
                         self.send_data(data, m.to).await
                     }
-                    ClientServerMsg::Logout => {
+                    ClientServerTuiMsg::Logout => {
                         if let Err(err) = self.close_channel.tx.send(ClientTaskResult::Logout).await
                         {
-                            error!("rx close_channel dropped, {}, {}", err, get_location())
+                            error!("rx close_channel dropped, {}, {}", err, Bt::new())
                         };
                     }
                 };
             }
             None => {
                 if let Err(err) = self.close_channel.tx.send(ClientTaskResult::Close).await {
-                    error!("rx close_channel dropped: {},  {}", err, get_location())
+                    error!("rx close_channel dropped: {},  {}", err, Bt::new())
                 };
             }
         }
@@ -445,7 +338,7 @@ impl<'a> ClientTask<'a> {
     async fn handle_manager_msg(
         &mut self,
         result: Option<ManagerClientMsg>,
-    ) -> Result<(), DataParsingError> {
+    ) -> Result<(), DataParsingErrorOriginal> {
         if let Some(msg) = result {
             match msg {
                 ManagerClientMsg::EstablishDirectComm(c) => {
@@ -455,7 +348,7 @@ impl<'a> ClientTask<'a> {
                     let tx_client_client = self.spawn_direct_communication_task(c.payload.from);
 
                     if let Err(err) = c.ack.send(tx_client_client) {
-                        error!("oneshot rx not dropped during establishing direct communication. transit data: {:?}, {}", err, get_location());
+                        error!("oneshot rx not dropped during establishing direct communication. transit data: {:?}, {}", err, Bt::new());
                     };
                 }
 
@@ -464,7 +357,7 @@ impl<'a> ClientTask<'a> {
                         None => {
                             warn!(
                                 "romm transmitter not found after fetching for another user! {}",
-                                get_location()
+                                Bt::new()
                             );
                             return Ok(());
                         }
@@ -491,7 +384,7 @@ impl<'a> ClientTask<'a> {
                             None => {
                                 warn!(
                                     "establishing direct communication failed tx not found,  {}",
-                                    get_location()
+                                    Bt::new()
                                 );
                                 return;
                             }
@@ -501,7 +394,7 @@ impl<'a> ClientTask<'a> {
                 };
 
                 if tx.send(data).await.is_err() {
-                    warn!("should be already removed!! {}", get_location());
+                    warn!("should be already removed!! {}", Bt::new());
                     self.comm_client_drop_channel.tx.send(target).await.ok();
                 };
             }
@@ -515,7 +408,7 @@ impl<'a> ClientTask<'a> {
                     }
                 };
                 if let Err(err) = tx.send(data) {
-                    warn!("error sending data: {}, {}", err, get_location());
+                    warn!("error sending data: {}, {}", err, Bt::new());
                     self.room_channels.remove(&target_id);
                 };
             }
@@ -541,7 +434,7 @@ impl<'a> ClientTask<'a> {
             .send(ClientManagerMsg::EstablishDirectComm(channel_transit))
             .await
         {
-            warn!("tx_client_manager dropped, {},{}", err, get_location());
+            warn!("tx_client_manager dropped, {},{}", err, Bt::new());
             return;
         };
 
@@ -550,7 +443,7 @@ impl<'a> ClientTask<'a> {
                 warn!(
                     "oneshot transmitter for establishing direct communication dropped, {}, {}",
                     err,
-                    get_location()
+                    Bt::new()
                 );
                 return;
             }
@@ -616,7 +509,7 @@ impl<'a> ClientTask<'a> {
                                     break
                                 },
                                 RecvError::Lagged(n) =>{
-                                    warn!("room receiver not handling received messages, missed: {}, {}", n, get_location());
+                                    warn!("room receiver not handling received messages, missed: {}, {}", n, Bt::new());
 
                                 }
                             };

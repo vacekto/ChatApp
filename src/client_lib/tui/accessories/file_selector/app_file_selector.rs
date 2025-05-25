@@ -7,33 +7,38 @@ use crate::{
             types::{ChannelKind, SelectorEntryKind},
         },
     },
-    shared_lib::types::{Channel, Chunk, ClientServerMsg, FileMetadata, User},
+    shared_lib::types::{Channel, Chunk, ClientServerTuiMsg, FileMetadata, User},
 };
 use anyhow::Result;
-use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
 use std::{io::Read, os::linux::fs::MetadataExt, path::PathBuf};
 use uuid::Uuid;
 
 impl App {
-    pub fn handle_file_selector_key_event(&mut self, key_event: KeyEvent) -> Result<()> {
-        match key_event.code {
-            KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.exit()
+    pub fn handle_file_selector_key_event(&mut self, event: Event) -> Result<()> {
+        match event {
+            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
+                match key_event.code {
+                    KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                        self.exit()
+                    }
+                    KeyCode::Char('f') | KeyCode::Char('F')
+                        if key_event.modifiers.contains(KeyModifiers::CONTROL) =>
+                    {
+                        self.close_file_selector()?
+                    }
+                    KeyCode::Esc => self.close_file_selector()?,
+                    KeyCode::Up => self.file_selector.move_up()?,
+                    KeyCode::Down => self.file_selector.move_down()?,
+                    KeyCode::Left => self.file_selector.close_current_folder()?,
+                    KeyCode::Right => self.file_selector.open_folder()?,
+                    KeyCode::Enter => self.handle_file_selector_enter()?,
+                    _ => {
+                        self.username_ta_login.input(key_event);
+                    }
+                };
             }
-            KeyCode::Char('f') | KeyCode::Char('F')
-                if key_event.modifiers.contains(KeyModifiers::CONTROL) =>
-            {
-                self.close_file_selector()?
-            }
-            KeyCode::Esc => self.close_file_selector()?,
-            KeyCode::Up => self.file_selector.move_up()?,
-            KeyCode::Down => self.file_selector.move_down()?,
-            KeyCode::Left => self.file_selector.close_current_folder()?,
-            KeyCode::Right => self.file_selector.open_folder()?,
-            KeyCode::Enter => self.handle_file_selector_enter()?,
-            _ => {
-                self.login_text_area.input(key_event);
-            }
+            _ => {}
         };
 
         Ok(())
@@ -107,7 +112,7 @@ impl App {
                 from,
             };
 
-            let metadata = ClientServerMsg::FileMetadata(meta);
+            let metadata = ClientServerTuiMsg::FileMetadata(meta);
             tx_tui_tcp_msg.send(metadata)?;
 
             loop {

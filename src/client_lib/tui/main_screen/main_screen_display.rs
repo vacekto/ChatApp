@@ -46,17 +46,10 @@ impl App {
         let area_contacts = layout_content[0];
         let area_messages_and_intput = layout_content[1];
 
-        Line::from(vec![
-            Span::from("switch focus: Shift + "),
-            Span::from("(Left, "),
-            Span::from("Right)"),
-        ])
-        .alignment(Alignment::Left)
-        .render(area_bottom_bar.inner(Margin::new(1, 1)), buf);
-
-        // Paragraph::new(vec![Line::from("cosi"), Line::from("kdosi")])
-        //     .alignment(Alignment::Right)
-        //     .render(area_bottom_bar.inner(Margin::new(1, 0)), buf);
+        let span_option_tab = Span::from("switch focus: Tab ");
+        Line::from(vec![span_option_tab])
+            .alignment(Alignment::Left)
+            .render(area_bottom_bar.inner(Margin::new(1, 1)), buf);
 
         Block::default()
             .style(Style::default().bg(Color::Rgb(
@@ -164,11 +157,6 @@ impl App {
         let area_input = layout_messages_and_intput[1].inner(Margin::new(0, 0));
         self.main_text_area
             .render(area_input.inner(Margin::new(2, 2)), buf);
-
-        // Block::default()
-        //     .style(Style::default().bg(Color::Rgb(43, 51, 57)))
-        //     // .borders(Borders::ALL)
-        //     .render(area, buf);
 
         Block::bordered()
             .title(title_input)

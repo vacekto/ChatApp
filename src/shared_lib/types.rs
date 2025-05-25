@@ -3,13 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use uuid::Uuid;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct InitUserData {
-    pub id: Uuid,
-    pub username: String,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct User {
     pub username: String,
     pub id: Uuid,
@@ -38,7 +32,7 @@ pub struct Chunk {
 }
 
 #[derive(Deserialize, Serialize, Debug)]
-pub enum ClientServerMsg {
+pub enum ClientServerTuiMsg {
     Text(TextMsg),
     FileChunk(Chunk),
     FileMetadata(FileMetadata),
@@ -50,21 +44,33 @@ pub enum ServerClientMsg {
     Text(TextMsg),
     FileChunk(Chunk),
     FileMetadata(FileMetadata),
-    UserJoinedRoom(ClientRoomUpdateTransit),
-    UserLeftRoom(ClientRoomUpdateTransit),
+    UserJoinedRoom(RoomUpdateTransit),
+    UserLeftRoom(RoomUpdateTransit),
     Auth(AuthResponse),
-    Init(InitPersistedUserData),
+    Register(RegisterResponse),
+    Init(UserClientData),
+    UserConnected(User),
+    UserDisconnected(User),
 }
 
 #[derive(Deserialize, Serialize, Debug)]
-pub struct ClientRoomUpdateTransit {
+pub struct RoomUpdateTransit {
     pub user: User,
     pub room_id: Uuid,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
-pub struct InitPersistedUserData {
-    pub rooms: Vec<RoomChannel>,
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct TuiRoom {
+    pub id: Uuid,
+    pub name: String,
+    pub messages: VecDeque<TuiMsg>,
+    pub users: Vec<User>,
+    pub users_online: Vec<User>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct UserClientData {
+    pub rooms: Vec<TuiRoom>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -100,10 +106,29 @@ pub enum TuiMsg {
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct AuthData {
     pub username: String,
+    pub password: String,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
 pub enum AuthResponse {
-    Success(InitUserData),
+    Success(User),
     Failure(String),
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub enum RegisterResponse {
+    Success(User),
+    Failure(String),
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub enum ClientServerConnectMsg {
+    Login(AuthData),
+    Register(RegisterData),
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct RegisterData {
+    pub username: String,
+    pub password: String,
 }

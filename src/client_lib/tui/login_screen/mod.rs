@@ -1,2 +1,2 @@
-pub mod app_login_screen;
-pub mod login_screen_display;
+pub mod app_entry_screen;
+pub mod entry_display;

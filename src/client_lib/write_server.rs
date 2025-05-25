@@ -3,7 +3,7 @@ use std::io::Write;
 use anyhow::{Context, Result};
 use crossbeam::select;
 
-use crate::shared_lib::types::ClientServerMsg;
+use crate::shared_lib::types::ClientServerTuiMsg;
 
 use super::global_states::app_state::get_global_state;
 
@@ -23,7 +23,7 @@ pub fn write_to_server() -> Result<()> {
 
         select! {
             recv(rx_file) -> chunk => if let Ok(chunk) = chunk {
-                let framed = frame_tcp_msg(ClientServerMsg::FileChunk(chunk))?;
+                let framed = frame_tcp_msg(ClientServerTuiMsg::FileChunk(chunk))?;
                 tcp.write_all(&framed)?;
             },
             recv(rx_msg) -> msg => if let Ok(msg) = msg {
@@ -34,7 +34,7 @@ pub fn write_to_server() -> Result<()> {
     }
 }
 
-fn frame_tcp_msg(msg: ClientServerMsg) -> Result<Vec<u8>> {
+fn frame_tcp_msg(msg: ClientServerTuiMsg) -> Result<Vec<u8>> {
     let serialized = bincode::serialize(&msg).context("incorrect init data from server")?;
     let framed = frame_data(&serialized);
     Ok(framed)

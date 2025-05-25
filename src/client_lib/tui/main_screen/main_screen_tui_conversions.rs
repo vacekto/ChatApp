@@ -1,6 +1,6 @@
 use crate::{
     client_lib::util::types::{Contact, ImgRender},
-    shared_lib::types::{DirectChannel, RoomChannel, TextMsg, TuiMsg, User},
+    shared_lib::types::{DirectChannel, TextMsg, TuiMsg, TuiRoom, User},
 };
 
 use ratatui::{
@@ -40,8 +40,8 @@ impl From<&User> for Line<'static> {
         Line::from(notification)
     }
 }
-impl From<&RoomChannel> for Line<'_> {
-    fn from(c: &RoomChannel) -> Self {
+impl From<&TuiRoom> for Line<'_> {
+    fn from(c: &TuiRoom) -> Self {
         Line::from(c.name.clone())
     }
 }

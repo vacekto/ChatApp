@@ -2,7 +2,9 @@ use bytes::Bytes;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use uuid::Uuid;
 
-use crate::shared_lib::types::{RoomChannel, User};
+use crate::shared_lib::types::{
+    AuthData, AuthResponse, RegisterData, RegisterResponse, RoomChannel, TuiRoom, User,
+};
 
 #[derive(Debug)]
 pub struct DirectChannelTransitPayload {
@@ -16,8 +18,9 @@ pub struct EstablishDirectCommTransit {
     pub ack: oneshot::Sender<mpsc::Sender<Bytes>>,
 }
 
-pub struct GetAllUsersTransit {
-    pub ack: oneshot::Sender<Vec<User>>,
+pub struct GetConnectedUsersTransit {
+    pub tx_ack: oneshot::Sender<Vec<TuiRoom>>,
+    pub rooms: Vec<RoomChannel>,
 }
 
 pub enum ClientManagerMsg {
@@ -25,8 +28,8 @@ pub enum ClientManagerMsg {
     ClientDropped(Uuid),
     EstablishDirectComm(EstablishDirectCommTransit),
     EstablishRoomComm(EstablishRoomCommTransit),
-    CheckUsername(CheckUsernameTransit),
-    GetOnlineUsers(GetAllUsersTransit),
+    GetConnectedUsers(GetConnectedUsersTransit),
+    UserRegistered(User),
 }
 
 pub struct EstablishRoomCommTransit {
@@ -35,17 +38,12 @@ pub struct EstablishRoomCommTransit {
     pub ack: oneshot::Sender<broadcast::Sender<Bytes>>,
 }
 
-pub struct CheckUsernameTransit {
-    pub username: String,
-    pub tx: oneshot::Sender<bool>,
-}
-
 pub enum ManagerClientMsg {
     EstablishDirectComm(EstablishDirectCommTransit),
-    GetRoomTransmitter(GetRoomTransmitterTransit),
+    GetRoomTransmitter(GetRoomTxTransit),
 }
 
-pub struct GetRoomTransmitterTransit {
+pub struct GetRoomTxTransit {
     pub tx_ack: oneshot::Sender<broadcast::Sender<Bytes>>,
     pub room_id: Uuid,
 }
@@ -69,6 +67,7 @@ pub struct OneShotChannel<T> {
     pub rx: oneshot::Receiver<T>,
 }
 
+#[derive(Debug)]
 pub struct Client {
     pub user: User,
     pub tx: mpsc::Sender<ManagerClientMsg>,
@@ -79,26 +78,49 @@ pub enum ClientTaskResult {
     Logout,
 }
 
-#[derive(Debug)]
 pub enum ClientPersistenceMsg {
-    GetUserData(GetUserDataTransit),
-    UserJoinedRoom(ServerRoomUpdateTransit),
-    UserLeftRoom(ServerRoomUpdateTransit),
+    GetUserData(UserDataTransit),
+    UserJoinedRoom(UserRoomTransit),
+    UserLeftRoom(UserRoomTransit),
+    Register(RegisterDataTransit),
+    Authenticate(AuthTransit),
+}
+
+pub struct AuthTransit {
+    pub tx: oneshot::Sender<AuthResponse>,
+    pub data: AuthData,
+}
+
+pub struct RegisterDataTransit {
+    pub data: RegisterData,
+    pub tx: oneshot::Sender<RegisterResponse>,
 }
 
 #[derive(Debug)]
-pub struct ServerRoomUpdateTransit {
+pub struct UserRoomTransit {
     pub user: User,
     pub room_id: Uuid,
 }
 
 #[derive(Debug)]
-pub struct GetUserDataTransit {
-    pub tx: oneshot::Sender<PersistedUserData>,
+pub struct UserDataTransit {
+    pub tx: oneshot::Sender<UserServerData>,
     pub user: User,
 }
-
 #[derive(Debug)]
-pub struct PersistedUserData {
+pub struct UserServerData {
     pub rooms: Vec<RoomChannel>,
+}
+
+pub struct DbUser {
+    pub username: String,
+    pub id: Uuid,
+    pub password: String,
+    pub rooms: Vec<Uuid>,
+}
+
+pub struct DbRoomChannel {
+    pub users: Vec<String>,
+    pub id: Uuid,
+    pub password: Option<String>,
 }

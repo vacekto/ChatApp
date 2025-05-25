@@ -4,22 +4,22 @@ use crate::{
         util::{
             config::THEME_GRAY_GREEN_LIGHT,
             types::{
-                ActiveChannel, ActiveScreen, ActiveStream, ChannelKind, FileSelector, Focus,
-                ImgRender, MpscChannel, TuiUpdate,
+                ActiveChannel, ActiveEntryInput, ActiveEntryScreen, ActiveScreen, ActiveStream,
+                ChannelKind, FileSelector, Focus, ImgRender, MpscChannel, Notification, TuiUpdate,
             },
         },
     },
     shared_lib::{
         config::PUBLIC_ROOM_ID,
         types::{
-            Channel, Chunk, ClientRoomUpdateTransit, ClientServerMsg, DirectChannel,
-            InitPersistedUserData, InitUserData, RoomChannel, TextMsg, TuiMsg, User,
+            Channel, Chunk, ClientServerTuiMsg, DirectChannel, RegisterResponse, RoomUpdateTransit,
+            TextMsg, TuiMsg, TuiRoom, User, UserClientData,
         },
     },
 };
 use anyhow::{bail, Result};
 use ratatui::{
-    crossterm::event::{self, Event, KeyEventKind},
+    crossterm::event::{self, Event},
     style::{Color, Style},
     widgets::Paragraph,
     DefaultTerminal, Frame,
@@ -35,19 +35,25 @@ pub struct App {
     pub username: String,
     pub id: Uuid,
     pub exit: bool,
-    pub login_text_area: TextArea<'static>,
+    pub username_ta_login: TextArea<'static>,
+    pub password_ta_login: TextArea<'static>,
+    pub username_ta_register: TextArea<'static>,
+    pub password_ta_register: TextArea<'static>,
+    pub repeat_password_ta: TextArea<'static>,
     pub main_text_area: TextArea<'static>,
-    pub room_channels: Vec<RoomChannel>,
+    pub room_channels: Vec<TuiRoom>,
     pub direct_channels: Vec<DirectChannel>,
-    pub active_channel: ActiveChannel,
     pub data_streams: HashMap<Uuid, ActiveStream>,
+    pub active_channel: ActiveChannel,
     pub active_screen: ActiveScreen,
+    pub active_entry_input: ActiveEntryInput,
+    pub active_entry_screen: ActiveEntryScreen,
     pub display_file_selector: bool,
     pub file_selector: FileSelector,
-    pub login_notification: Option<String>,
+    pub login_screen_notification: Option<Notification>,
     pub main_scroll_offset: usize,
     pub tui_channel: MpscChannel<TuiUpdate, TuiUpdate>,
-    pub tx_tui_tcp_msg: crossbeam::channel::Sender<ClientServerMsg>,
+    pub tx_tui_tcp_msg: crossbeam::channel::Sender<ClientServerTuiMsg>,
     pub tx_tui_tcp_file: crossbeam::channel::Sender<Chunk>,
     pub focus: Focus,
 }
@@ -71,7 +77,11 @@ impl App {
             username: String::new(),
             id: Uuid::nil(),
             exit: false,
-            login_text_area: TextArea::default(),
+            username_ta_login: TextArea::default(),
+            password_ta_login: TextArea::default(),
+            password_ta_register: TextArea::default(),
+            username_ta_register: TextArea::default(),
+            repeat_password_ta: TextArea::default(),
             main_text_area: TextArea::default(),
             active_channel: ActiveChannel {
                 id: None,
@@ -80,10 +90,12 @@ impl App {
             direct_channels: vec![],
             room_channels: vec![],
             data_streams: HashMap::new(),
-            active_screen: ActiveScreen::Login,
+            active_screen: ActiveScreen::Entry,
+            active_entry_screen: ActiveEntryScreen::Login,
+            active_entry_input: ActiveEntryInput::Username,
             display_file_selector: false,
             file_selector: FileSelector::new(),
-            login_notification: None,
+            login_screen_notification: None,
             main_scroll_offset: 0,
             tui_channel: MpscChannel {
                 tx: tx_tui_update,
@@ -96,7 +108,7 @@ impl App {
     }
 
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
-        self.listen_for_events();
+        self.listen_for_tui_events();
 
         let rx_tui = self.tui_channel.rx.take().unwrap();
         while !self.exit {
@@ -106,17 +118,70 @@ impl App {
                 TuiUpdate::CrosstermEvent(e) => self.handle_events(e)?,
                 TuiUpdate::Img(img) => self.handle_img_render(img)?,
                 TuiUpdate::Auth(data) => self.handle_auth_response(data),
+                TuiUpdate::RegisterResponse(res) => self.handle_register_response(res),
                 TuiUpdate::UserJoinedRoom(update) => self.handle_user_joined_room(update),
                 TuiUpdate::UserLeftRoom(update) => self.handle_user_left_room(update),
                 TuiUpdate::Text(msg) => self.handle_text_message(msg),
-                TuiUpdate::UserInitData(data) => self.handle_init_data(data),
+                TuiUpdate::User(data) => self.handle_init_data(data),
+                TuiUpdate::UserConnected(user) => self.handle_user_connected(user),
+                TuiUpdate::UserDisconnected(user) => self.handle_user_disconnected(user),
             }
         }
 
         Ok(())
     }
 
-    fn handle_user_left_room(&mut self, update: ClientRoomUpdateTransit) {
+    fn handle_register_response(&mut self, res: RegisterResponse) {
+        match res {
+            RegisterResponse::Failure(msg) => {
+                self.login_screen_notification = Some(Notification::Failure(msg));
+            }
+            RegisterResponse::Success(user) => {
+                let msg = format!("Account with username {} was created.", user.username);
+                self.login_screen_notification = Some(Notification::Success(msg));
+
+                self.password_ta_register = TextArea::default();
+                self.username_ta_register = TextArea::default();
+                self.repeat_password_ta = TextArea::default();
+                self.active_entry_screen = ActiveEntryScreen::Login;
+                self.active_entry_input = ActiveEntryInput::Username;
+            }
+        }
+    }
+
+    fn handle_user_connected(&mut self, user: User) {
+        for room in &mut self.room_channels {
+            if room.users.contains(&user) && !room.users_online.contains(&user) {
+                if room.id == Uuid::from_str(PUBLIC_ROOM_ID).unwrap() {
+                    let dr = DirectChannel {
+                        messages: VecDeque::new(),
+                        user: user.clone(),
+                    };
+                    self.direct_channels.push(dr);
+                }
+                room.users_online.push(user.clone());
+            }
+        }
+    }
+
+    fn handle_user_disconnected(&mut self, user: User) {
+        if let Some(id) = self.active_channel.id {
+            if user.id == id {
+                self.active_channel.id = None;
+            }
+        }
+
+        for room in &mut self.room_channels {
+            if room.users.contains(&user) {
+                if room.id == Uuid::from_str(PUBLIC_ROOM_ID).unwrap() {
+                    self.direct_channels.retain(|dr| dr.user.id != user.id);
+                }
+                room.users_online.retain(|u| u.id != user.id);
+            }
+        }
+    }
+
+    fn handle_user_left_room(&mut self, update: RoomUpdateTransit) {
         if let Some(room) = self
             .room_channels
             .iter_mut()
@@ -126,12 +191,11 @@ impl App {
 
             if room.id == Uuid::from_str(PUBLIC_ROOM_ID).unwrap() {
                 self.direct_channels.retain(|r| r.user.id != update.user.id);
-                {}
             }
         };
     }
 
-    fn handle_user_joined_room(&mut self, update: ClientRoomUpdateTransit) {
+    fn handle_user_joined_room(&mut self, update: RoomUpdateTransit) {
         if let Some(room) = self
             .room_channels
             .iter_mut()
@@ -139,16 +203,18 @@ impl App {
         {
             room.users.push(update.user.clone());
 
-            let new_channel = DirectChannel {
-                messages: VecDeque::new(),
-                user: update.user,
-            };
+            // if update.room_id == Uuid::from_str(PUBLIC_ROOM_ID).unwrap() {
+            //     let new_channel = DirectChannel {
+            //         messages: VecDeque::new(),
+            //         user: update.user,
+            //     };
 
-            self.direct_channels.push(new_channel);
+            //     self.direct_channels.push(new_channel);
+            // };
         };
     }
 
-    fn handle_init_data(&mut self, data: InitPersistedUserData) {
+    fn handle_init_data(&mut self, data: UserClientData) {
         for mut room in data.rooms {
             room.users.retain(|u| u.username != self.username);
 
@@ -173,7 +239,7 @@ impl App {
         };
     }
 
-    fn listen_for_events(&self) {
+    fn listen_for_tui_events(&self) {
         let th_runner = get_thread_runner();
         let tx = self.tui_channel.tx.clone();
 
@@ -211,51 +277,28 @@ impl App {
         }
     }
 
-    pub fn init(&mut self, init: InitUserData) {
+    pub fn init(&mut self, init: User) {
         self.username = init.username;
         self.id = init.id;
     }
 
     pub fn logout(&mut self) -> Result<()> {
-        let state = get_global_state();
-        let tx_tui_tcp = state.tui_tcp_msg_channel.tx.clone();
-        drop(state);
-
-        let msg = ClientServerMsg::Logout;
-        tx_tui_tcp.send(msg)?;
-        self.active_screen = ActiveScreen::Login;
+        let msg = ClientServerTuiMsg::Logout;
+        self.tx_tui_tcp_msg.send(msg)?;
+        self.active_screen = ActiveScreen::Entry;
+        self.active_entry_screen = ActiveEntryScreen::Login;
         self.direct_channels = vec![];
         self.room_channels = vec![];
+        self.main_text_area = TextArea::default();
 
         Ok(())
     }
 
-    fn handle_events(&mut self, e: Event) -> Result<()> {
+    fn handle_events(&mut self, event: Event) -> Result<()> {
         match (&self.active_screen, self.display_file_selector) {
-            (ActiveScreen::Login, _) => {
-                match e {
-                    Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                        self.handle_login_key_event(key_event)?
-                    }
-                    _ => {}
-                };
-            }
-            (ActiveScreen::Main, true) => {
-                match e {
-                    Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                        self.handle_file_selector_key_event(key_event)?
-                    }
-                    _ => {}
-                };
-            }
-            (ActiveScreen::Main, false) => {
-                match e {
-                    Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                        self.handle_main_key_event(key_event)?
-                    }
-                    _ => {}
-                };
-            }
+            (ActiveScreen::Entry, _) => self.handle_entry_key_event(event)?,
+            (ActiveScreen::Main, true) => self.handle_file_selector_key_event(event)?,
+            (ActiveScreen::Main, false) => self.handle_main_key_event(event)?,
         }
 
         Ok(())
@@ -289,7 +332,7 @@ impl App {
             messages.push_front(TuiMsg::TextMsg(msg.clone()));
         };
 
-        let msg = ClientServerMsg::Text(msg);
+        let msg = ClientServerTuiMsg::Text(msg);
 
         tx_tui_tcp.send(msg)?;
         self.main_text_area = TextArea::default();

@@ -1,10 +1,11 @@
+#![feature(error_generic_member_access)]
 use anyhow::Result;
 use chat_app::{
     client_lib::{
         data_stream::handle_file_streaming,
         global_states::{
             app_state::init_global_state,
-            console_logger::initialize_console_logger,
+            // console_logger::initialize_console_logger,
             thread_logger::{get_thread_logger, get_thread_runner},
         },
         read_server::listen_for_server,
@@ -16,7 +17,7 @@ use chat_app::{
 use std::{net::TcpStream, thread, time::Duration};
 
 fn main() -> Result<()> {
-    initialize_console_logger();
+    // initialize_console_logger();
     let tcp = loop {
         println!("attempting to establish connection../");
         match TcpStream::connect(SERVER_ADDR) {
@@ -40,7 +41,6 @@ fn main() -> Result<()> {
     th_runner.spawn("write server", true, || write_to_server());
     th_runner.spawn("file stream", true, || handle_file_streaming());
     th_runner.spawn("ratatui", true, || tui());
-
     // tui()?;
 
     th_logger.log_results();
