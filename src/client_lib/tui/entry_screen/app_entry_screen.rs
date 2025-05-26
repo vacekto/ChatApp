@@ -1,10 +1,12 @@
-use std::io::Write;
-
 use crate::{
     client_lib::{
         global_states::app_state::get_global_state,
-        tui::app::app::App,
-        util::types::{ActiveEntryInput, ActiveEntryScreen, Notification},
+        tui::app::App,
+        util::types::{
+            ActiveEntryInput::{Password, RepeatPassword, Username},
+            ActiveEntryScreen::{Login, Register},
+            Notification,
+        },
         write_server::frame_data,
     },
     shared_lib::{
@@ -15,21 +17,22 @@ use crate::{
 use anyhow::Result;
 use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use regex::Regex;
+use std::io::Write;
 
 impl App {
     fn switch_entry_screen(&mut self) {
         self.active_entry_screen = match self.active_entry_screen {
-            ActiveEntryScreen::Login => ActiveEntryScreen::Register,
-            ActiveEntryScreen::Register => {
-                if self.active_entry_input == ActiveEntryInput::RepeatPassword {
-                    self.active_entry_input = ActiveEntryInput::Username;
+            Login => Register,
+            Register => {
+                if self.active_entry_input == RepeatPassword {
+                    self.active_entry_input = Username;
                 }
-                ActiveEntryScreen::Login
+                Login
             }
         };
     }
 
-    pub fn handle_entry_key_event(&mut self, event: Event) -> Result<()> {
+    pub fn handle_entry_screen_event(&mut self, event: Event) -> Result<()> {
         match event {
             Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
                 match key_event.code {
@@ -52,74 +55,42 @@ impl App {
     }
 
     fn handle_input_event(&mut self, key_event: KeyEvent) {
-        match self.active_entry_screen {
-            ActiveEntryScreen::Login => {
-                match self.active_entry_input {
-                    ActiveEntryInput::Username => {
-                        self.username_ta_login.input(key_event);
-                    }
-                    ActiveEntryInput::Password => {
-                        self.password_ta_login.input(key_event);
-                    }
-                    ActiveEntryInput::RepeatPassword => unreachable!(),
-                };
-            }
-            ActiveEntryScreen::Register => match self.active_entry_input {
-                ActiveEntryInput::Username => {
-                    self.username_ta_register.input(key_event);
-                }
-                ActiveEntryInput::Password => {
-                    self.password_ta_register.input(key_event);
-                }
-                ActiveEntryInput::RepeatPassword => {
-                    self.repeat_password_ta.input(key_event);
-                }
-            },
-        }
+        match (&self.active_entry_screen, &self.active_entry_input) {
+            (Login, Username) => self.username_ta_login.input(key_event),
+            (Login, Password) => self.password_ta_login.input(key_event),
+            (Login, RepeatPassword) => unreachable!(),
+            (Register, Username) => self.username_ta_register.input(key_event),
+            (Register, Password) => self.password_ta_register.input(key_event),
+            (Register, RepeatPassword) => self.repeat_password_ta.input(key_event),
+        };
     }
 
     fn move_active_input_up(&mut self) {
-        match self.active_entry_screen {
-            ActiveEntryScreen::Login => {
-                self.active_entry_input = match self.active_entry_input {
-                    ActiveEntryInput::Username => ActiveEntryInput::Username,
-                    ActiveEntryInput::Password => ActiveEntryInput::Username,
-                    _ => unreachable!(),
-                }
-            }
-            ActiveEntryScreen::Register => {
-                self.active_entry_input = match self.active_entry_input {
-                    ActiveEntryInput::Username => ActiveEntryInput::Username,
-                    ActiveEntryInput::Password => ActiveEntryInput::Username,
-                    ActiveEntryInput::RepeatPassword => ActiveEntryInput::Password,
-                }
-            }
-        }
+        self.active_entry_input = match (&self.active_entry_screen, &self.active_entry_input) {
+            (Login, Username) => Username,
+            (Login, Password) => Username,
+            (Login, RepeatPassword) => unreachable!(),
+            (Register, Username) => Username,
+            (Register, Password) => Username,
+            (Register, RepeatPassword) => Password,
+        };
     }
 
     fn move_active_input_down(&mut self) {
-        match self.active_entry_screen {
-            ActiveEntryScreen::Login => {
-                self.active_entry_input = match self.active_entry_input {
-                    ActiveEntryInput::Username => ActiveEntryInput::Password,
-                    ActiveEntryInput::Password => ActiveEntryInput::Password,
-                    _ => unreachable!(),
-                }
-            }
-            ActiveEntryScreen::Register => {
-                self.active_entry_input = match self.active_entry_input {
-                    ActiveEntryInput::Username => ActiveEntryInput::Password,
-                    ActiveEntryInput::Password => ActiveEntryInput::RepeatPassword,
-                    ActiveEntryInput::RepeatPassword => ActiveEntryInput::RepeatPassword,
-                }
-            }
-        }
+        self.active_entry_input = match (&self.active_entry_screen, &self.active_entry_input) {
+            (Login, Username) => Password,
+            (Login, Password) => Password,
+            (Login, RepeatPassword) => unreachable!(),
+            (Register, Username) => Password,
+            (Register, Password) => RepeatPassword,
+            (Register, RepeatPassword) => RepeatPassword,
+        };
     }
 
     fn handle_entry_enter(&mut self) -> Result<()> {
         match self.active_entry_screen {
-            ActiveEntryScreen::Login => self.handle_auth()?,
-            ActiveEntryScreen::Register => self.handle_register()?,
+            Login => self.handle_auth()?,
+            Register => self.handle_register()?,
         };
 
         Ok(())
@@ -127,9 +98,9 @@ impl App {
 
     fn handle_auth(&mut self) -> Result<()> {
         let username = String::from(self.username_ta_login.lines().join("").trim());
-        let password = String::from(self.username_ta_login.lines().join("").trim());
+        let password = String::from(self.password_ta_login.lines().join("").trim());
 
-        if let Err(msg) = self.validate_login() {
+        if let Err(msg) = self.validate_login(&username, &password) {
             self.login_screen_notification = Some(Notification::Failure(msg));
             return Ok(());
         };
@@ -147,9 +118,10 @@ impl App {
 
     fn handle_register(&mut self) -> Result<()> {
         let username = String::from(self.username_ta_register.lines().join("\n").trim());
-        let password = String::from(self.username_ta_register.lines().join("\n").trim());
+        let password = String::from(self.password_ta_register.lines().join("\n").trim());
+        let repeat_password = String::from(self.repeat_password_ta.lines().join("\n").trim());
 
-        if let Err(msg) = self.validate_register() {
+        if let Err(msg) = self.validate_register(&username, &password, &repeat_password) {
             self.login_screen_notification = Some(Notification::Failure(msg));
             return Ok(());
         };
@@ -165,25 +137,22 @@ impl App {
         Ok(())
     }
 
-    fn validate_login(&mut self) -> Result<(), String> {
+    fn validate_login(&mut self, username: &str, password: &str) -> Result<(), String> {
         let username_pattern = USERNAME_RE_PATTERN;
         let username_re = Regex::new(username_pattern).unwrap();
 
         let password_allowed_pattern = r"^[A-Za-z\d!@#$%^&*()_+]{8,32}$";
         let password_allowed_re = Regex::new(password_allowed_pattern).unwrap();
 
-        let username = String::from(self.username_ta_login.lines().join("").trim());
-        let password = String::from(self.password_ta_login.lines().join("").trim());
-
         let username_error_msg  = String::from("Username must start with a letter, not contain special characters ouside of \"_\" and have length between 7 to 29");
         let password_error_msg =
             String::from("Password must contain at least one lowercase and uppercase letter, digit and have length between 8 to 32");
 
-        if !username_re.is_match(&username) {
+        if !username_re.is_match(username) {
             return Err(username_error_msg);
         };
 
-        if !password_allowed_re.is_match(&password)
+        if !password_allowed_re.is_match(password)
             || !password.chars().any(|c| c.is_lowercase())
             || !password.chars().any(|c| c.is_uppercase())
             || !password.chars().any(|c| c.is_ascii_digit())
@@ -194,16 +163,17 @@ impl App {
         Ok(())
     }
 
-    fn validate_register(&self) -> Result<(), String> {
+    fn validate_register(
+        &self,
+        username: &str,
+        password: &str,
+        repeat_password: &str,
+    ) -> Result<(), String> {
         let username_pattern = USERNAME_RE_PATTERN;
         let username_re = Regex::new(username_pattern).unwrap();
 
         let password_allowed_pattern = r"^[A-Za-z\d!@#$%^&*()_+]{8,32}$";
         let password_allowed_re = Regex::new(password_allowed_pattern).unwrap();
-
-        let username = String::from(self.username_ta_register.lines().join("").trim());
-        let password = String::from(self.password_ta_register.lines().join("").trim());
-        let repeat_password = String::from(self.repeat_password_ta.lines().join("").trim());
 
         let username_error_msg  = String::from("Username must start with a letter, not contain special characters ouside of \"_\" and have length between 7 to 29");
         let password_error_msg =

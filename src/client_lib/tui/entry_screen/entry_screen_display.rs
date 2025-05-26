@@ -8,7 +8,7 @@ use ratatui::{
 };
 
 use crate::client_lib::{
-    tui::app::app::App,
+    tui::app::App,
     util::{
         config::{THEME_GREEN, THEME_YELLOW_1, THEME_YELLOW_2},
         types::{ActiveEntryInput, ActiveEntryScreen, Notification},

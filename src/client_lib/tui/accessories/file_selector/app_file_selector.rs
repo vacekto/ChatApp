@@ -1,7 +1,7 @@
 use crate::{
     client_lib::{
         global_states::thread_logger::get_thread_runner,
-        tui::app::app::App,
+        tui::app::App,
         util::{
             config::TCP_CHUNK_BUFFER_SIZE,
             types::{ChannelKind, SelectorEntryKind},

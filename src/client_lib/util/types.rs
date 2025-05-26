@@ -33,7 +33,7 @@ pub enum TuiUpdate {
     UserJoinedRoom(RoomUpdateTransit),
     UserLeftRoom(RoomUpdateTransit),
     Auth(AuthResponse),
-    User(UserClientData),
+    Init(UserClientData),
     UserDisconnected(User),
     UserConnected(User),
     RegisterResponse(RegisterResponse),

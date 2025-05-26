@@ -37,7 +37,7 @@ pub fn listen_for_server() -> Result<()> {
                 tx_tui_update.send(TuiUpdate::UserJoinedRoom(update))?
             }
             ServerClientMsg::Text(msg) => tx_tui_update.send(TuiUpdate::Text(msg))?,
-            ServerClientMsg::Init(data) => tx_tui_update.send(TuiUpdate::User(data))?,
+            ServerClientMsg::Init(data) => tx_tui_update.send(TuiUpdate::Init(data))?,
             ServerClientMsg::UserLeftRoom(update) => {
                 tx_tui_update.send(TuiUpdate::UserLeftRoom(update))?
             }

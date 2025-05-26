@@ -2,7 +2,7 @@ use ratatui::widgets::Widget;
 
 use crate::client_lib::util::types::ActiveScreen;
 
-use super::app::App;
+use super::App;
 
 impl Widget for &mut App {
     fn render(self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer) {

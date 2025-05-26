@@ -1,6 +1,6 @@
 use crate::{
     client_lib::{
-        tui::app::app::App,
+        tui::app::App,
         util::{
             config::MESSAGES_SCROLL_RESERVE,
             types::{ActiveScreen, ChannelKind, Focus, Notification},
@@ -34,68 +34,6 @@ impl App {
         }
     }
 
-    // fn handle_room_invitation(&mut self, mut room: RoomChannel) {
-    //     if room.id == Uuid::from_str(PUBLIC_ROOM_ID).unwrap() {
-    //         if let Some(i) = room.users.iter().position(|u| u.id == self.id) {
-    //             room.users.remove(i);
-    //         };
-
-    //         for user in &room.users {
-    //             self.direct_channels.push(DirectChannel {
-    //                 messages: VecDeque::new(),
-    //                 user: (*user).clone(),
-    //             });
-    //         }
-    //     };
-
-    //     self.room_channels.push(room);
-    // }
-
-    // pub fn handle_room_update(&mut self, mut room: RoomChannel) {
-    //     if room.id == Uuid::from_str(PUBLIC_ROOM_ID).unwrap() {
-    //         if let Some(i) = room.users.iter().position(|u| u.id == self.id) {
-    //             room.users.remove(i);
-    //         };
-
-    //         let mut direct_channels_update: Vec<DirectChannel> = vec![];
-
-    //         for user in room.users.clone() {
-    //             if let Some(i) = self
-    //                 .direct_channels
-    //                 .iter()
-    //                 .position(|c| c.user.id == user.id)
-    //             {
-    //                 direct_channels_update.push(self.direct_channels[i].clone());
-    //             } else {
-    //                 direct_channels_update.push(DirectChannel {
-    //                     messages: VecDeque::new(),
-    //                     user: (user).clone(),
-    //                 });
-    //             };
-    //         }
-
-    //         self.direct_channels = direct_channels_update;
-
-    //         match (&self.active_channel.kind, self.active_channel.id) {
-    //             (ChannelKind::Direct, Some(id)) => {
-    //                 if !self.direct_channels.iter().any(|c| c.user.id == id) {
-    //                     self.active_channel.id = None;
-    //                 }
-    //             }
-    //             (ChannelKind::Room, Some(id)) => {
-    //                 if !self.room_channels.iter().any(|c| c.id == id) {
-    //                     self.active_channel.id = None;
-    //                 }
-    //             }
-    //             _ => {}
-    //         }
-    //     };
-
-    //     if let Some(index) = self.room_channels.iter().position(|c| c.id == room.id) {
-    //         self.room_channels[index] = room;
-    //     };
-    // }
-
     pub fn handle_text_message(&mut self, msg: TextMsg) {
         match msg.to {
             Channel::Room(id) => {
@@ -126,7 +64,7 @@ impl App {
         }
     }
 
-    pub fn handle_main_key_event(&mut self, event: Event) -> Result<()> {
+    pub fn handle_main_screen_event(&mut self, event: Event) -> Result<()> {
         match event {
             Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
                 match self.focus {
