@@ -1,7 +1,7 @@
 use crate::{
     client_lib::{
         global_states::app_state::get_global_state,
-        tui::app::App,
+        tui::app::app::App,
         util::types::{
             ActiveEntryInput::{Password, RepeatPassword, Username},
             ActiveEntryScreen::{Login, Register},

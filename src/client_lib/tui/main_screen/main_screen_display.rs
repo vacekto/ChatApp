@@ -1,6 +1,6 @@
 use crate::{
     client_lib::{
-        tui::app::App,
+        tui::app::app::App,
         util::{
             config::{
                 MESSAGES_SCROLL_RESERVE, THEME_GRAY_GREEN_DARK, THEME_GREEN, THEME_YELLOW_1,

@@ -44,7 +44,8 @@ pub async fn handle_connection<'a>(
                 continue;
             }
             ClientServerConnectMsg::Login(auth_data) => {
-                let res = authenticate(auth_data, &tx_client_persistence).await?;
+                let res =
+                    authenticate(auth_data, &tx_client_persistence, &tx_client_manager).await?;
 
                 let user = match &res {
                     AuthResponse::Failure(_) => {

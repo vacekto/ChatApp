@@ -30,6 +30,12 @@ pub enum ClientManagerMsg {
     EstablishRoomComm(EstablishRoomCommTransit),
     GetConnectedUsers(GetConnectedUsersTransit),
     UserRegistered(User),
+    IsOnline(IsOnlineTransit),
+}
+
+pub struct IsOnlineTransit {
+    pub ack: oneshot::Sender<bool>,
+    pub username: String,
 }
 
 pub struct EstablishRoomCommTransit {

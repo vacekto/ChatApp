@@ -1,7 +1,7 @@
 use super::types::{
     server_data_types::{
         AuthTransit, ClientManagerMsg, ClientPersistenceMsg, GetConnectedUsersTransit,
-        RegisterDataTransit, UserDataTransit, UserServerData,
+        IsOnlineTransit, RegisterDataTransit, UserDataTransit, UserServerData,
     },
     server_error_types::{BincodeErr, Bt, TcpErr},
     server_error_wrapper_types::{DataParsingErrorOriginal, TcpDataParsingError},
@@ -92,7 +92,30 @@ pub async fn read_client_data<'a>(
 pub async fn authenticate(
     auth_data: AuthData,
     tx_client_persistence: &mpsc::Sender<ClientPersistenceMsg>,
+    tx_client_manager: &mpsc::Sender<ClientManagerMsg>,
 ) -> Result<AuthResponse, anyhow::Error> {
+    let (tx_manager_ack, rx_manager_ack) = oneshot::channel::<bool>();
+    let manager_transit = IsOnlineTransit {
+        ack: tx_manager_ack,
+        username: auth_data.username.clone(),
+    };
+
+    let manager_msg = ClientManagerMsg::IsOnline(manager_transit);
+
+    tx_client_manager
+        .send(manager_msg)
+        .await
+        .map_err(|err| anyhow!("{}{}", err, Bt::new()))?;
+
+    let is_online = rx_manager_ack
+        .await
+        .map_err(|err| anyhow!("{}{}", err, Bt::new()))?;
+
+    if is_online {
+        let res = AuthResponse::Failure(String::from("User is already logged in"));
+        return Ok(res);
+    }
+
     let (tx_ack, rx_ack) = oneshot::channel::<AuthResponse>();
 
     let transit = AuthTransit {
@@ -100,10 +123,10 @@ pub async fn authenticate(
         tx: tx_ack,
     };
 
-    let manager_msg = ClientPersistenceMsg::Authenticate(transit);
+    let persistence_msg = ClientPersistenceMsg::Authenticate(transit);
 
     tx_client_persistence
-        .send(manager_msg)
+        .send(persistence_msg)
         .await
         .map_err(|err| anyhow!("{}{}", err, Bt::new()))?;
 

@@ -1,6 +1,6 @@
 use crate::{
     client_lib::{
-        tui::app::App,
+        tui::app::app::App,
         util::{
             config::MESSAGES_SCROLL_RESERVE,
             types::{ActiveScreen, ChannelKind, Focus, Notification},

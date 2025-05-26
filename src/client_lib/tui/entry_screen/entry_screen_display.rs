@@ -1,3 +1,10 @@
+use crate::client_lib::{
+    tui::app::app::App,
+    util::{
+        config::{THEME_GREEN, THEME_YELLOW_1, THEME_YELLOW_2},
+        types::{ActiveEntryInput, ActiveEntryScreen, Notification},
+    },
+};
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Margin, Rect},
@@ -5,14 +12,6 @@ use ratatui::{
     symbols::border,
     text::{Line, Span, Text},
     widgets::{Block, Paragraph, Widget, Wrap},
-};
-
-use crate::client_lib::{
-    tui::app::App,
-    util::{
-        config::{THEME_GREEN, THEME_YELLOW_1, THEME_YELLOW_2},
-        types::{ActiveEntryInput, ActiveEntryScreen, Notification},
-    },
 };
 
 impl App {

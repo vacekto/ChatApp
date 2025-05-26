@@ -1,7 +1,7 @@
 use super::util::config::ROOM_CAPACITY;
 use super::util::types::server_data_types::{
     Client, ClientManagerMsg, EstablishDirectCommTransit, EstablishRoomCommTransit,
-    GetConnectedUsersTransit, GetRoomTxTransit, ManagerClientMsg,
+    GetConnectedUsersTransit, GetRoomTxTransit, IsOnlineTransit, ManagerClientMsg,
 };
 use crate::server_lib::util::server_functions::get_location;
 use crate::server_lib::util::types::server_error_types::Bt;
@@ -50,8 +50,19 @@ impl ManagerTask {
                 ClientManagerMsg::EstablishRoomComm(t) => self.handle_establish_room_comm(t).await,
                 ClientManagerMsg::GetConnectedUsers(t) => self.handle_get_connected_users(t),
                 ClientManagerMsg::UserRegistered(user) => self.handl_user_registered(user).await,
+                ClientManagerMsg::IsOnline(t) => self.handle_is_online(t),
             }
         }
+    }
+
+    fn handle_is_online(&self, t: IsOnlineTransit) {
+        let is_online = self
+            .connected_users
+            .iter()
+            .any(|(_, c)| c.user.username == t.username);
+        if t.ack.send(is_online).is_err() {
+            debug!("oneshot acknowledge receiver dropped {}", Bt::new());
+        };
     }
 
     fn handle_client_connected(&mut self, client: Client) {

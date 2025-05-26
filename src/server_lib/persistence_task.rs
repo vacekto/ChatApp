@@ -34,7 +34,7 @@ pub fn spawn_persistence_task(rx_client_persistence: mpsc::Receiver<ClientPersis
 impl PersistenceTask {
     fn new(rx_client_persistence: mpsc::Receiver<ClientPersistenceMsg>) -> Self {
         let mut rooms = HashMap::new();
-        let mut users: HashMap<String, DbUser> = HashMap::new();
+        let users: HashMap<String, DbUser> = HashMap::new();
 
         let public_room = RoomChannel {
             id: Uuid::from_str(PUBLIC_ROOM_ID).unwrap(),
@@ -44,15 +44,6 @@ impl PersistenceTask {
         };
 
         rooms.insert(public_room.id, public_room.clone());
-
-        let default_user = DbUser {
-            id: Uuid::new_v4(),
-            password: "Cosikdosi1".into(),
-            username: "Cosikdosi1".into(),
-            rooms: vec![public_room.id],
-        };
-
-        users.insert("Cosikdosi1".into(), default_user);
 
         Self {
             username_re: Regex::new(USERNAME_RE_PATTERN).unwrap(),

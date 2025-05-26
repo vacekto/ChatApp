@@ -2,9 +2,8 @@ pub mod accessories;
 pub mod app;
 pub mod entry_screen;
 pub mod main_screen;
-
 use anyhow::Result;
-use app::App;
+use app::app::App;
 
 pub fn tui() -> Result<()> {
     let mut terminal = ratatui::init();
