@@ -15,8 +15,8 @@ use crate::{
         config::PUBLIC_ROOM_ID,
         types::{
             Channel, Chunk, ClientServerMsg, DirectChannel, JoinRoomNotification,
-            LeaveRoomNotification, RegisterResponse, Response, TextMsg, TuiMsg, TuiRoom, User,
-            UserClientData,
+            LeaveRoomNotification, RegisterResponse, Response, RoomData, TextMsg, TuiMsg, TuiRoom,
+            User, UserInitData,
         },
     },
 };
@@ -141,10 +141,24 @@ impl App {
         Ok(())
     }
 
-    fn handle_join_room(&mut self, res: Response<TuiRoom>) {
+    fn handle_join_room(&mut self, res: Response<RoomData>) {
         match res {
             Response::Failure(msg) => self.room_creator.notification = Some(msg),
-            Response::Success(room) => self.room_channels.push(room),
+            Response::Success(room) => {
+                let room = TuiRoom {
+                    id: room.id,
+                    name: room.name,
+                    messages: VecDeque::new(),
+                    users: room.users,
+                    users_online: room.users_online,
+                };
+                self.active_channel = ActiveChannel {
+                    id: Some(room.id),
+                    kind: ChannelKind::Room,
+                };
+                self.room_channels.push(room);
+                self.display_room_creator = false;
+            }
         }
     }
 
@@ -222,7 +236,7 @@ impl App {
         };
     }
 
-    fn handle_init_data(&mut self, data: UserClientData) {
+    fn handle_init_data(&mut self, data: UserInitData) {
         for mut room in data.rooms {
             room.users.retain(|u| u.username != self.username);
 
@@ -235,6 +249,14 @@ impl App {
                     self.direct_channels.push(dir);
                 }
             }
+
+            let room = TuiRoom {
+                id: room.id,
+                name: room.name,
+                messages: VecDeque::new(),
+                users: room.users,
+                users_online: room.users_online,
+            };
 
             self.room_channels.push(room);
         }

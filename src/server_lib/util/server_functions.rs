@@ -1,42 +1,21 @@
 use super::types::{
     server_data_types::{
-        AuthTransit, ClientManagerMsg, ClientPersistenceMsg, GetConnectedUsersTransit,
-        IsOnlineTransit, RegisterDataTransit, UserDataTransit, UserServerData,
+        AuthTransit, ClientManagerMsg, ClientPersistenceMsg, IsOnlineTransit, RegisterDataTransit,
     },
     server_error_types::{BincodeErr, Bt, TcpErr},
     server_error_wrapper_types::TcpDataParsingError,
 };
 use crate::shared_lib::types::{
-    AuthData, AuthResponse, Chunk, ClientServerConnectMsg, FileMetadata, RegisterData,
-    RegisterResponse, ServerClientMsg, TextMsg, User, UserClientData,
+    AuthData, AuthResponse, ClientServerConnectMsg, RegisterData, RegisterResponse, ServerClientMsg,
 };
 use anyhow::anyhow;
 
-use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use tokio::{
     net::tcp::{OwnedReadHalf, OwnedWriteHalf},
     sync::{mpsc, oneshot},
 };
 use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
-
-pub fn serialize_text_msg(msg: TextMsg) -> Result<Bytes, BincodeErr> {
-    let msg = ServerClientMsg::Text(msg);
-    let serialized = bincode::serialize(&msg).map_err(|err| BincodeErr(err, Bt::new()))?;
-    Ok(Bytes::from(serialized))
-}
-
-pub fn serialize_file_chunk(chunk: Chunk) -> Result<Bytes, BincodeErr> {
-    let msg = ServerClientMsg::FileChunk(chunk);
-    let serialized = bincode::serialize(&msg).map_err(|err| BincodeErr(err, Bt::new()))?;
-    Ok(Bytes::from(serialized))
-}
-
-pub fn serialize_file_metadata(data: FileMetadata) -> Result<Bytes, BincodeErr> {
-    let msg = ServerClientMsg::FileMetadata(data);
-    let serialized = bincode::serialize(&msg).map_err(|err| BincodeErr(err, Bt::new()))?;
-    Ok(Bytes::from(serialized))
-}
 
 // returns file and line in which this function is called without the whole backtrace, for debugging purpuses
 
@@ -113,47 +92,47 @@ pub async fn authenticate(
         .map_err(|err| anyhow!("{}{}", err, Bt::new()))?)
 }
 
-pub async fn fetch_user_data(
-    user: User,
-    tx_client_persistence: &mpsc::Sender<ClientPersistenceMsg>,
-    tx_client_manager: &mpsc::Sender<ClientManagerMsg>,
-) -> Result<(UserServerData, UserClientData), anyhow::Error> {
-    let (tx_ack, rx_ack) = oneshot::channel();
+// pub async fn fetch_user_data(
+//     user: User,
+//     tx_client_persistence: &mpsc::Sender<ClientPersistenceMsg>,
+//     tx_client_manager: &mpsc::Sender<ClientManagerMsg>,
+// ) -> Result<(UserServerData, UserClientData), anyhow::Error> {
+//     let (tx_ack, rx_ack) = oneshot::channel();
 
-    let transit = UserDataTransit { tx: tx_ack, user };
+//     let transit = UserDataTransit { tx: tx_ack, user };
 
-    let msg = ClientPersistenceMsg::GetUserData(transit);
+//     let msg = ClientPersistenceMsg::GetUserData(transit);
 
-    tx_client_persistence
-        .send(msg)
-        .await
-        .map_err(|err| anyhow!("tx_client_persistence dropped: {err} {}", Bt::new()))?;
+//     tx_client_persistence
+//         .send(msg)
+//         .await
+//         .map_err(|err| anyhow!("tx_client_persistence dropped: {err} {}", Bt::new()))?;
 
-    let init_server_data = rx_ack.await.map_err(|err| {
-        anyhow!(
-            "oneshot transmitter for client init got dropped: {err} {}",
-            Bt::new()
-        )
-    })?;
+//     let init_server_data = rx_ack.await.map_err(|err| {
+//         anyhow!(
+//             "oneshot transmitter for client init got dropped: {err} {}",
+//             Bt::new()
+//         )
+//     })?;
 
-    let (tx_ack, rx_ack) = oneshot::channel();
+//     let (tx_ack, rx_ack) = oneshot::channel();
 
-    let transit = GetConnectedUsersTransit {
-        tx_ack,
-        rooms: init_server_data.rooms.clone(),
-    };
-    let msg = ClientManagerMsg::GetOnlineUsers(transit);
+//     let transit = GetConnectedUsersTransit {
+//         tx_ack,
+//         rooms: init_server_data.rooms.clone(),
+//     };
+//     let msg = ClientManagerMsg::GetOnlineUsers(transit);
 
-    tx_client_manager
-        .send(msg)
-        .await
-        .map_err(|err| anyhow!("{err}{}", Bt::new()))?;
+//     tx_client_manager
+//         .send(msg)
+//         .await
+//         .map_err(|err| anyhow!("{err}{}", Bt::new()))?;
 
-    let tui_rooms = rx_ack.await.map_err(|err| anyhow!("{err}{}", Bt::new()))?;
-    let init_client_data = UserClientData { rooms: tui_rooms };
+//     let tui_rooms = rx_ack.await.map_err(|err| anyhow!("{err}{}", Bt::new()))?;
+//     let init_client_data = UserClientData { rooms: tui_rooms };
 
-    Ok((init_server_data, init_client_data))
-}
+//     Ok((init_server_data, init_client_data))
+// }
 
 pub async fn handle_register(
     data: RegisterData,
@@ -181,5 +160,3 @@ pub async fn handle_register(
     };
     Ok(res)
 }
-
-pub async fn fetch_users_online() {}

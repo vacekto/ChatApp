@@ -13,9 +13,9 @@ use super::server_error_types::{BincodeErr, TcpErr};
 #[derive(Error, Debug)]
 pub enum ClientInitError {
     #[error(transparent)]
-    DataParsing(#[from] TcpDataParsingError),
-    #[error("{0}")]
-    Unexpected(String),
+    Bincode(#[from] BincodeErr),
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
 }
 
 #[derive(Error, Debug)]
@@ -42,4 +42,6 @@ pub enum TcpDataParsingError {
     Tcp(#[from] TcpErr),
     #[error("Connection closed")]
     ConnectionClosed,
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
 }

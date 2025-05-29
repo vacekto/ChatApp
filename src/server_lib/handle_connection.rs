@@ -1,7 +1,5 @@
 use super::util::{
-    server_functions::{
-        authenticate, fetch_user_data, handle_register, read_client_data, send_server_msg,
-    },
+    server_functions::{authenticate, handle_register, read_client_data, send_server_msg},
     types::{
         server_data_types::{ClientManagerMsg, ClientPersistenceMsg, ClientTaskResult},
         server_error_wrapper_types::TcpDataParsingError,
@@ -33,7 +31,7 @@ pub async fn handle_connection<'a>(
             },
         };
 
-        let (user, init_server_data) = match client_msg {
+        let user = match client_msg {
             ClientServerConnectMsg::Register(register_data) => {
                 let res =
                     handle_register(register_data, &tx_client_persistence, &tx_client_manager)
@@ -59,14 +57,7 @@ pub async fn handle_connection<'a>(
                 let msg = ServerClientMsg::Auth(res);
                 send_server_msg(&msg, &mut tcp_write).await?;
 
-                let (init_server_data, init_client_data) =
-                    fetch_user_data(user.clone(), &tx_client_persistence, &tx_client_manager)
-                        .await?;
-
-                let msg = ServerClientMsg::Init(init_client_data);
-                send_server_msg(&msg, &mut tcp_write).await?;
-
-                (user, init_server_data)
+                user
             }
         };
 
@@ -79,7 +70,7 @@ pub async fn handle_connection<'a>(
         )
         .await;
 
-        let res = client.run(init_server_data).await;
+        let res = client.run().await;
 
         match res {
             ClientTaskResult::Close => return Ok(()),

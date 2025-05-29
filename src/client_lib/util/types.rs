@@ -1,6 +1,7 @@
 use crate::shared_lib::types::{
     AuthResponse, Channel, Chunk, DirectChannel, FileMetadata, JoinRoomNotification,
-    LeaveRoomNotification, RegisterResponse, Response, TextMsg, TuiRoom, User, UserClientData,
+    LeaveRoomNotification, RegisterResponse, Response, RoomData, TextMsg, TuiRoom, User,
+    UserInitData,
 };
 use ratatui::crossterm::event::Event;
 use serde::{Deserialize, Serialize};
@@ -32,9 +33,9 @@ pub enum TuiUpdate {
     Text(TextMsg),
     UserJoinedRoom(JoinRoomNotification),
     UserLeftRoom(LeaveRoomNotification),
-    JoinRoom(Response<TuiRoom>),
+    JoinRoom(Response<RoomData>),
     Auth(AuthResponse),
-    Init(UserClientData),
+    Init(UserInitData),
     UserDisconnected(User),
     UserConnected(User),
     RegisterResponse(RegisterResponse),

@@ -10,7 +10,9 @@ use crate::{
         write_server::frame_data,
     },
     shared_lib::{
-        config::USERNAME_RE_PATTERN,
+        config::{
+            PASSWORD_ERROR_MSG, PASSWORD_RE_PATTERN, USERNAME_ERROR_MSG, USERNAME_RE_PATTERN,
+        },
         types::{AuthData, ClientServerConnectMsg, RegisterData},
     },
 };
@@ -141,12 +143,11 @@ impl App {
         let username_pattern = USERNAME_RE_PATTERN;
         let username_re = Regex::new(username_pattern).unwrap();
 
-        let password_allowed_pattern = r"^[A-Za-z\d!@#$%^&*()_+]{8,32}$";
+        let password_allowed_pattern = PASSWORD_RE_PATTERN;
         let password_allowed_re = Regex::new(password_allowed_pattern).unwrap();
 
-        let username_error_msg  = String::from("Username must start with a letter, not contain special characters ouside of \"_\" and have length between 7 to 29");
-        let password_error_msg =
-            String::from("Password must contain at least one lowercase and uppercase letter, digit and have length between 8 to 32");
+        let username_error_msg = String::from(USERNAME_ERROR_MSG);
+        let password_error_msg = String::from(PASSWORD_ERROR_MSG);
 
         if !username_re.is_match(username) {
             return Err(username_error_msg);

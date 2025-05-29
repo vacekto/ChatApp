@@ -14,6 +14,8 @@ use ratatui::{
 
 impl Widget for &mut RoomCreator {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        self.room_password_ta.set_mask_char('•');
+
         let width = 70;
         let height = 19;
 

@@ -1,15 +1,17 @@
 use super::util::types::server_data_types::{
     AuthTransit, ClientPersistenceMsg, CreateRoomResponse, CreateRoomServerTransit, DbRoom, DbUser,
-    JoinRoomPersistenceData, JoinRoomServerTransit, RegisterDataTransit, UserDataTransit,
-    UserRoomData, UserServerData,
+    JoinRoomServerTransit, RegisterDataTransit, UserDataTransit, UserRoomData,
 };
 use crate::{
     server_lib::util::types::{
         server_data_types::JoinRoommPersistenceResponse, server_error_types::Bt,
     },
     shared_lib::{
-        config::{PUBLIC_ROOM_ID, PUBLIC_ROOM_NAME, USERNAME_RE_PATTERN},
-        types::{AuthResponse, RegisterResponse, TuiRoom, User},
+        config::{
+            PASSWORD_ERROR_MSG, PASSWORD_RE_PATTERN, PUBLIC_ROOM_ID, PUBLIC_ROOM_NAME,
+            USERNAME_ERROR_MSG, USERNAME_RE_PATTERN,
+        },
+        types::{AuthResponse, RegisterResponse, RoomData, User, UserInitData},
     },
 };
 use log::{debug, warn};
@@ -23,6 +25,7 @@ use uuid::Uuid;
 
 struct PersistenceTask {
     username_re: Regex,
+    password_re: Regex,
     rooms: HashMap<Uuid, DbRoom>,
     users: HashMap<String, DbUser>,
     rx_client_persistence: mpsc::Receiver<ClientPersistenceMsg>,
@@ -51,6 +54,7 @@ impl PersistenceTask {
         rooms.insert(public_room.id, public_room.clone());
 
         Self {
+            password_re: Regex::new(PASSWORD_RE_PATTERN).unwrap(),
             username_re: Regex::new(USERNAME_RE_PATTERN).unwrap(),
             rooms,
             users,
@@ -119,19 +123,18 @@ impl PersistenceTask {
             password: t.room_password,
         };
 
-        db_user.rooms.push(new_db_room.id);
-
-        let new_tui_room = TuiRoom {
+        let room_data = RoomData {
             id: new_db_room.id,
-            messages: VecDeque::new(),
             name: new_db_room.name.clone(),
             users: vec![user.clone()],
             users_online: vec![user.clone()],
         };
 
+        debug!("{:?}", new_db_room.password);
+        db_user.rooms.push(new_db_room.id);
         self.rooms.insert(new_db_room.id, new_db_room);
 
-        let res = CreateRoomResponse::Success(new_tui_room);
+        let res = CreateRoomResponse::Success(room_data);
         if let Err(err) = t.tx.send(res) {
             debug!(
                 "oneshot auth receiver dropped before auth finished {err:?} {}",
@@ -160,6 +163,31 @@ impl PersistenceTask {
             t.tx.send(res).ok();
             return;
         }
+        debug!("privided: {:?}", &t.room_password);
+        debug!("required: {:?}", &room.password);
+
+        match (&room.password, &t.room_password) {
+            (Some(correct_password), Some(provided_password)) => {
+                debug!("1");
+                if correct_password != provided_password {
+                    debug!("2");
+                    let msg = format!("Incorrect room password.");
+                    let res = JoinRoommPersistenceResponse::Failure(msg);
+                    t.tx.send(res).ok();
+                    return;
+                }
+            }
+            (Some(_), None) => {
+                debug!("3");
+                let msg = format!("Room password required.");
+                let res = JoinRoommPersistenceResponse::Failure(msg);
+                t.tx.send(res).ok();
+                return;
+            }
+            _ => {
+                debug!("4");
+            }
+        }
 
         let user = match self.users.get_mut(&t.user.username) {
             None => {
@@ -173,13 +201,14 @@ impl PersistenceTask {
 
         user.rooms.push(room.id);
 
-        let transit = JoinRoomPersistenceData {
-            room_id: room.id,
-            room_users: room.users.clone(),
-            room_name: t.room_name,
+        let data = RoomData {
+            id: room.id,
+            name: t.room_name,
+            users: room.users.clone(),
+            users_online: vec![],
         };
 
-        let res = JoinRoommPersistenceResponse::Success(transit);
+        let res = JoinRoommPersistenceResponse::Success(data);
         t.tx.send(res).ok();
     }
 
@@ -228,16 +257,22 @@ impl PersistenceTask {
 
         let mut user_rooms = vec![];
 
-        for room_id in user.rooms.iter() {
+        for room_id in &user.rooms {
             match self.rooms.get(room_id) {
                 Some(r) => {
-                    user_rooms.push(r.clone());
+                    let room = RoomData {
+                        id: r.id,
+                        name: r.name.clone(),
+                        users: r.users.clone(),
+                        users_online: vec![],
+                    };
+                    user_rooms.push(room);
                 }
                 None => debug!("Room saved in DbUser does is not persisted!!{}", Bt::new()),
             };
         }
 
-        let data = UserServerData { rooms: user_rooms };
+        let data = UserInitData { rooms: user_rooms };
 
         if let Err(err) = t.tx.send(data) {
             debug!("oneshot register res receiver dropped{err:?} {}", Bt::new());
@@ -246,7 +281,7 @@ impl PersistenceTask {
 
     fn handle_register(&mut self, t: RegisterDataTransit) {
         if !self.username_re.is_match(&t.data.username) {
-            let err_msg =  String::from("Username must start with a letter, not contain special characters ouside of \"_\" and have length between 7 to 29");
+            let err_msg = String::from(USERNAME_ERROR_MSG);
             let res = RegisterResponse::Failure(err_msg);
             if let Err(err) = t.tx.send(res) {
                 debug!("oneshot register res receiver dropped{err:?} {}", Bt::new());
@@ -261,6 +296,18 @@ impl PersistenceTask {
             };
             return;
         };
+
+        if !self.password_re.is_match(&t.data.password)
+            || !&t.data.password.chars().any(|c| c.is_lowercase())
+            || !&t.data.password.chars().any(|c| c.is_uppercase())
+            || !&t.data.password.chars().any(|c| c.is_ascii_digit())
+        {
+            let res = RegisterResponse::Failure(String::from(PASSWORD_ERROR_MSG));
+            if let Err(err) = t.tx.send(res) {
+                debug!("oneshot register res receiver dropped{err:?} {}", Bt::new());
+            };
+            return;
+        }
 
         let public_room_id = Uuid::from_str(PUBLIC_ROOM_ID).unwrap();
 

@@ -14,7 +14,7 @@ impl RoomCreator {
         Self {
             room_name_ta: TextArea::default(),
             room_password_ta: TextArea::default(),
-            notification: Some(String::from("Some notification")),
+            notification: None,
             active_input: ActiveCreateRoomInput::Name,
             active_action: RoomAction::Create,
         }

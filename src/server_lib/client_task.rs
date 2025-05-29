@@ -1,13 +1,12 @@
 use super::util::{
     config::{COMM_CLIENT_CAPACITY, DIRECT_CAPACITY, MANAGER_CLIENT_CAPACITY, ROOM_CAPACITY},
-    server_functions::{serialize_file_chunk, serialize_file_metadata, serialize_text_msg},
     types::{
         server_data_types::{
             BroadcastChannel, Client, ClientManagerMsg, ClientPersistenceMsg, ClientTaskResult,
-            CreateRoomResponse, CreateRoomServerTransit, DbRoom, DirectChannelTransitPayload,
-            EstablishDirectCommTransit, EstablishRoomCommTransit, JoinRoomServerTransit,
-            JoinRoommPersistenceResponse, ManagerClientMsg, MpscChannel, OnlineRoomUsersTransit,
-            UserServerData,
+            CreateRoomResponse, CreateRoomServerTransit, DirectChannelTransitPayload,
+            DirectChannelTxTransit, JoinRoomServerTransit, JoinRoommPersistenceResponse,
+            ManagerClientMsg, MpscChannel, MultipleRoomsUpdateTransit, RoomChannelTxTransit,
+            RoomUpdateTransit, UserDataTransit,
         },
         server_error_types::{BincodeErr, TcpErr},
         server_error_wrapper_types::TcpDataParsingError,
@@ -16,15 +15,15 @@ use super::util::{
 use crate::{
     server_lib::util::types::server_error_types::Bt,
     shared_lib::types::{
-        Channel, ClientServerMsg, JoinRoomNotification, JoinRoomServerResponse, Response,
-        ServerClientMsg, TuiRoom, User,
+        Channel, ClientServerMsg, JoinRoomNotification, JoinRoomServerResponse, Response, RoomData,
+        ServerClientMsg, User, UserInitData,
     },
 };
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use bytes::{Bytes, BytesMut};
 use futures::{future::join_all, SinkExt, StreamExt, TryFutureExt};
 use log::{debug, error, warn};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use tokio::{
     net::tcp::{OwnedReadHalf, OwnedWriteHalf},
     select,
@@ -126,33 +125,80 @@ impl<'a> ClientTask<'a> {
         }
     }
 
-    async fn init(&mut self, persited_data: UserServerData) -> Result<(), BincodeErr> {
-        let room_transmitters = self
-            .get_room_transmitters(persited_data.rooms.clone())
-            .await;
+    async fn init(&mut self) -> Result<(), TcpDataParsingError> {
+        let init_data = self.get_user_init_data().await?;
+
+        let msg = ServerClientMsg::Init(init_data.clone());
+        self.send_to_client(msg).await?;
+
+        let room_transmitters = self.get_room_transmitters(init_data.rooms.clone()).await;
 
         for (id, tx) in room_transmitters {
             let tx = self.spawn_room_communication_task(tx, id);
+
+            self.room_channels.insert(id, tx);
 
             let msg = ServerClientMsg::UserConnected(User {
                 username: self.username.clone(),
                 id: self.id,
             });
 
-            let serialized = bincode::serialize(&msg).map_err(|err| BincodeErr(err, Bt::new()))?;
-
-            let bytes = Bytes::from(serialized);
-            tx.send(bytes).ok();
-
-            self.room_channels.insert(id, tx);
+            self.send_data_to_channel(msg, Channel::Room(id)).await?;
         }
 
         Ok(())
     }
 
+    async fn get_user_init_data(&self) -> Result<UserInitData, anyhow::Error> {
+        let (tx_ack, rx_ack) = oneshot::channel();
+
+        let transit = UserDataTransit {
+            tx: tx_ack,
+            user: User {
+                username: self.username.clone(),
+                id: self.id,
+            },
+        };
+
+        let msg = ClientPersistenceMsg::GetUserData(transit);
+
+        self.tx_client_persistence
+            .send(msg)
+            .await
+            .map_err(|err| anyhow!("tx_client_persistence dropped: {err} {}", Bt::new()))?;
+
+        let init_server_data = rx_ack.await.map_err(|err| {
+            anyhow!(
+                "oneshot transmitter for client init got dropped: {err} {}",
+                Bt::new()
+            )
+        })?;
+
+        let (tx_ack, rx_ack) = oneshot::channel();
+
+        let transit = MultipleRoomsUpdateTransit {
+            tx_ack,
+            rooms: init_server_data.rooms,
+        };
+        let msg = ClientManagerMsg::UpdateMultipleRooms(transit);
+
+        self.client_manager_channel
+            .tx
+            .send(msg)
+            .await
+            .map_err(|err| anyhow!("{err}{}", Bt::new()))?;
+
+        let updated_room_data = rx_ack.await.map_err(|err| anyhow!("{err}{}", Bt::new()))?;
+        let init_client_data = UserInitData {
+            rooms: updated_room_data,
+        };
+
+        Ok(init_client_data)
+    }
+
     async fn get_room_transmitters(
         &self,
-        rooms: Vec<DbRoom>,
+        rooms: Vec<RoomData>,
     ) -> Vec<(Uuid, broadcast::Sender<Bytes>)> {
         let mut handles = Vec::with_capacity(rooms.len());
 
@@ -161,7 +207,7 @@ impl<'a> ClientTask<'a> {
             let tx_client_manager = self.client_manager_channel.tx.clone();
 
             room.users.retain(|u| u.id != self.id);
-            let msg = ClientManagerMsg::EstablishRoomComm(EstablishRoomCommTransit {
+            let msg = ClientManagerMsg::GetRoomChannelTx(RoomChannelTxTransit {
                 room_id: room.id,
                 room_users: room.users,
                 ack: tx_ack,
@@ -203,8 +249,8 @@ impl<'a> ClientTask<'a> {
         room_channels
     }
 
-    pub async fn run(mut self, init_data: UserServerData) -> ClientTaskResult {
-        if let Err(err) = self.init(init_data).await {
+    pub async fn run(mut self) -> ClientTaskResult {
+        if let Err(err) = self.init().await {
             error!("{err}");
             self.cleanup().await;
             return ClientTaskResult::Close;
@@ -317,17 +363,20 @@ impl<'a> ClientTask<'a> {
                     bincode::deserialize(&data).map_err(|err| BincodeErr(err, Bt::new()))?;
 
                 match message {
-                    ClientServerMsg::Text(msg) => {
-                        let data = serialize_text_msg(msg.clone())?;
-                        self.send_msg_data(data, msg.to).await
+                    ClientServerMsg::Text(text_msg) => {
+                        let target = text_msg.to.clone();
+                        let msg = ServerClientMsg::Text(text_msg);
+                        self.send_data_to_channel(msg, target).await?;
                     }
-                    ClientServerMsg::FileChunk(c) => {
-                        let data = serialize_file_chunk(c.clone())?;
-                        self.send_msg_data(data, c.to).await
+                    ClientServerMsg::FileChunk(chunk) => {
+                        let target = chunk.to.clone();
+                        let msg = ServerClientMsg::FileChunk(chunk);
+                        self.send_data_to_channel(msg, target).await?;
                     }
-                    ClientServerMsg::FileMetadata(m) => {
-                        let data = serialize_file_metadata(m.clone())?;
-                        self.send_msg_data(data, m.to).await
+                    ClientServerMsg::FileMetadata(data) => {
+                        let target = data.to.clone();
+                        let msg = ServerClientMsg::FileMetadata(data);
+                        self.send_data_to_channel(msg, target).await?;
                     }
                     ClientServerMsg::Logout => {
                         if let Err(err) = self.close_channel.tx.send(ClientTaskResult::Logout).await
@@ -402,6 +451,7 @@ impl<'a> ClientTask<'a> {
                         let server_err_res = JoinRoomServerResponse::Failure(String::from(
                             "Internal server error, joining room failed",
                         ));
+
                         let server_err_msg = ServerClientMsg::JoinRoomResponse(server_err_res);
 
                         if let Err(err) = self.tx_client_persistence.send(msg).await {
@@ -410,7 +460,7 @@ impl<'a> ClientTask<'a> {
                             return Ok(());
                         };
 
-                        let persistence_res_data = match rx_ack.await {
+                        let room_data = match rx_ack.await {
                             Err(err) => {
                                 error!(" oneshot tx_ack dropped in persistence_task before answering {}, {}", err, Bt::new());
                                 self.send_to_client(server_err_msg).await?;
@@ -423,8 +473,9 @@ impl<'a> ClientTask<'a> {
                                     self.send_to_client(msg).await?;
                                     return Ok(());
                                 }
+
                                 Response::Success(mut data) => {
-                                    data.room_users.retain(|u| u.username != self.username);
+                                    data.users.retain(|u| u.username != self.username);
                                     data
                                 }
                             },
@@ -455,20 +506,20 @@ impl<'a> ClientTask<'a> {
                         // //     Ok(tx) => tx,
                         // // };
 
-                        let (tx_ack, rx_ack) = oneshot::channel::<Vec<User>>();
+                        let (tx_ack, rx_ack) = oneshot::channel();
 
-                        let transit = OnlineRoomUsersTransit {
-                            tx_acks: tx_ack,
-                            users: persistence_res_data.room_users.clone(),
+                        let transit = RoomUpdateTransit {
+                            tx_ack: tx_ack,
+                            room: room_data,
                         };
 
-                        let msg = ClientManagerMsg::GetRoomOnlineUsers(transit);
+                        let msg = ClientManagerMsg::UpdateRoom(transit);
 
                         if let Err(err) = self.client_manager_channel.tx.send(msg).await {
                             error!("rx_client_manager dropped, error: {}, {}", err, Bt::new())
                         };
 
-                        let online_users = match rx_ack.await {
+                        let room_data = match rx_ack.await {
                             Err(err) => {
                                 warn!("client_manager_channel.rx dropped, {} {}", err, Bt::new());
                                 self.send_to_client(server_err_msg).await?;
@@ -477,38 +528,27 @@ impl<'a> ClientTask<'a> {
                             Ok(users) => users,
                         };
 
-                        self.establish_room_comm(
-                            persistence_res_data.room_id,
-                            persistence_res_data.room_users.clone(),
-                        )
-                        .await;
-
-                        let tui_room = TuiRoom {
-                            id: persistence_res_data.room_id,
-                            name: persistence_res_data.room_name,
-                            messages: VecDeque::new(),
-                            users: persistence_res_data.room_users,
-                            users_online: online_users,
-                        };
+                        self.establish_room_comm(room_data.id, room_data.users.clone())
+                            .await;
 
                         let notification = JoinRoomNotification {
-                            room_id: persistence_res_data.room_id,
+                            room_id: room_data.id,
                             user: User {
                                 username: self.username.clone(),
                                 id: self.id,
                             },
                         };
 
-                        let room_msg = ServerClientMsg::UserJoinedRoom(notification);
-                        let serialized = bincode::serialize(&room_msg)
-                            .map_err(|err| BincodeErr(err, Bt::new()))?;
-                        let target = Channel::Room(tui_room.id);
+                        let msg = ServerClientMsg::UserJoinedRoom(notification);
+                        let target = Channel::Room(room_data.id);
+                        self.send_data_to_channel(msg, target).await?;
 
-                        let res = JoinRoomServerResponse::Success(tui_room);
+                        let res = JoinRoomServerResponse::Success(room_data);
                         let msg = ServerClientMsg::JoinRoomResponse(res);
                         self.send_to_client(msg).await?;
+                        // self.send_data_to_channel(msg, target).await;
 
-                        self.send_msg_data(serialized.into(), target).await;
+                        // self.send_to_client(msg).await?;
                     }
                 };
             }
@@ -527,7 +567,6 @@ impl<'a> ClientTask<'a> {
                 ManagerClientMsg::EstablishDirectComm(c) => {
                     self.direct_channels
                         .insert(c.payload.from, c.payload.tx_client_client);
-
                     let tx_client_client = self.spawn_direct_communication_task(c.payload.from);
 
                     if let Err(err) = c.ack.send(tx_client_client) {
@@ -552,7 +591,14 @@ impl<'a> ClientTask<'a> {
         }
     }
 
-    async fn send_msg_data(&mut self, data: Bytes, target: Channel) {
+    async fn send_data_to_channel(
+        &mut self,
+        msg: ServerClientMsg,
+        target: Channel,
+    ) -> Result<(), TcpDataParsingError> {
+        let serialized = bincode::serialize(&msg).map_err(|err| BincodeErr(err, Bt::new()))?;
+        let data = Bytes::from(serialized);
+
         match target {
             Channel::User(target_id) => {
                 let tx = self.direct_channels.get(&target_id);
@@ -568,7 +614,7 @@ impl<'a> ClientTask<'a> {
                                     "establishing direct communication failed {}, msg not sent",
                                     Bt::new()
                                 );
-                                return;
+                                return Ok(());
                             }
                         };
                         tx
@@ -587,8 +633,8 @@ impl<'a> ClientTask<'a> {
                 let tx = match tx {
                     Some(tx) => tx,
                     None => {
-                        warn!("Room transmiter not found ");
-                        return;
+                        warn!("Room transmiter not found {}", Bt::new());
+                        return Ok(());
                     }
                 };
 
@@ -600,13 +646,14 @@ impl<'a> ClientTask<'a> {
                 };
             }
         };
+        Ok(())
     }
 
     async fn establish_direct_comm(&mut self, target_id: Uuid) {
         let tx_client_client = self.spawn_direct_communication_task(target_id);
         let (tx_ack, rx_ack) = oneshot::channel::<mpsc::Sender<Bytes>>();
 
-        let channel_transit = EstablishDirectCommTransit {
+        let channel_transit = DirectChannelTxTransit {
             payload: DirectChannelTransitPayload {
                 tx_client_client,
                 from: self.id,
@@ -618,7 +665,7 @@ impl<'a> ClientTask<'a> {
         if let Err(err) = self
             .client_manager_channel
             .tx
-            .send(ClientManagerMsg::EstablishDirectComm(channel_transit))
+            .send(ClientManagerMsg::GetDirectChannelTx(channel_transit))
             .await
         {
             warn!("tx_client_manager dropped, {},{}", err, Bt::new());
@@ -644,7 +691,7 @@ impl<'a> ClientTask<'a> {
     async fn establish_room_comm(&mut self, room_id: Uuid, room_users: Vec<User>) {
         let (tx_ack, rx_ack) = oneshot::channel::<broadcast::Sender<Bytes>>();
 
-        let transit = EstablishRoomCommTransit {
+        let transit = RoomChannelTxTransit {
             room_id,
             room_users,
             ack: tx_ack,
@@ -653,7 +700,7 @@ impl<'a> ClientTask<'a> {
         if let Err(err) = self
             .client_manager_channel
             .tx
-            .send(ClientManagerMsg::EstablishRoomComm(transit))
+            .send(ClientManagerMsg::GetRoomChannelTx(transit))
             .await
         {
             warn!("tx_client_manager dropped, {},{}", err, Bt::new());
@@ -672,6 +719,7 @@ impl<'a> ClientTask<'a> {
             Ok(tx) => tx,
         };
 
+        let tx = self.spawn_room_communication_task(tx, room_id);
         self.room_channels.insert(room_id, tx);
     }
 

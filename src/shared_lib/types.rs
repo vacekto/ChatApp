@@ -59,14 +59,14 @@ pub enum ServerClientMsg {
     UserLeftRoom(LeaveRoomNotification),
     Auth(AuthResponse),
     Register(RegisterResponse),
-    Init(UserClientData),
+    Init(UserInitData),
     UserConnected(User),
     UserDisconnected(User),
     CreateRoomResponse(CreateRoomResponse),
     JoinRoomResponse(JoinRoomServerResponse),
 }
 
-pub type JoinRoomServerResponse = Response<TuiRoom>;
+pub type JoinRoomServerResponse = Response<RoomData>;
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct JoinRoomNotification {
@@ -90,8 +90,16 @@ pub struct TuiRoom {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct UserClientData {
-    pub rooms: Vec<TuiRoom>,
+pub struct UserInitData {
+    pub rooms: Vec<RoomData>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct RoomData {
+    pub id: Uuid,
+    pub name: String,
+    pub users: Vec<User>,
+    pub users_online: Vec<User>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]

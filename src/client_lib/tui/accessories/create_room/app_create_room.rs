@@ -1,6 +1,5 @@
 use crate::{
     client_lib::{
-        global_states::console_logger::console_log,
         tui::app::app::App,
         util::types::{ActiveCreateRoomInput, RoomAction},
     },
@@ -27,7 +26,7 @@ impl App {
                     KeyCode::Esc => self.display_room_creator = false,
                     KeyCode::Up => self.room_creator.move_active_input_up(),
                     KeyCode::Down => self.room_creator.move_active_input_down(),
-                    KeyCode::Enter => self.handle_create_room()?,
+                    KeyCode::Enter => self.handle_room_submit()?,
                     KeyCode::Tab => self.room_creator.switch_action(),
                     _ => {
                         if self.room_creator.active_input == ActiveCreateRoomInput::Name {
@@ -44,10 +43,10 @@ impl App {
         Ok(())
     }
 
-    pub fn handle_create_room(&mut self) -> Result<()> {
-        console_log("creating room");
+    pub fn handle_room_submit(&mut self) -> Result<()> {
         let room_name = String::from(self.room_creator.room_name_ta.lines().join("").trim());
-        let room_password = String::from(self.room_creator.room_name_ta.lines().join("").trim());
+        let room_password =
+            String::from(self.room_creator.room_password_ta.lines().join("").trim());
 
         let room_password = if room_password.is_empty() {
             None

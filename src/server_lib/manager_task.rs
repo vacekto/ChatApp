@@ -1,12 +1,11 @@
 use super::util::config::ROOM_CAPACITY;
 use super::util::types::server_data_types::{
-    Client, ClientManagerMsg, EstablishDirectCommTransit, EstablishRoomCommTransit,
-    GetConnectedUsersTransit, GetRoomTxTransit, IsOnlineTransit, ManagerClientMsg,
-    OnlineRoomUsersTransit,
+    Client, ClientManagerMsg, DirectChannelTxTransit, GetRoomTxTransit, IsOnlineTransit,
+    ManagerClientMsg, MultipleRoomsUpdateTransit, RoomChannelTxTransit, RoomUpdateTransit,
 };
 use crate::server_lib::util::types::server_error_types::Bt;
 use crate::shared_lib::config::PUBLIC_ROOM_ID;
-use crate::shared_lib::types::{JoinRoomNotification, ServerClientMsg, TuiRoom, User};
+use crate::shared_lib::types::{JoinRoomNotification, RoomData, ServerClientMsg, User};
 use bytes::Bytes;
 use log::{debug, error, warn};
 use std::collections::HashMap;
@@ -44,31 +43,31 @@ impl ManagerTask {
             match msg {
                 ClientManagerMsg::ClientConnected(client) => self.handle_client_connected(client),
                 ClientManagerMsg::ClientDropped(id) => self.handle_client_dropped(id),
-                ClientManagerMsg::EstablishDirectComm(t) => {
+                ClientManagerMsg::GetDirectChannelTx(t) => {
                     self.handle_establish_direct_comm(t).await
                 }
-                ClientManagerMsg::EstablishRoomComm(t) => self.handle_establish_room_comm(t).await,
-                ClientManagerMsg::GetOnlineUsers(t) => self.handle_get_connected_users(t),
-                ClientManagerMsg::UserRegistered(user) => self.handl_user_registered(user).await,
+                ClientManagerMsg::GetRoomChannelTx(t) => self.handle_get_room_channel_tx(t).await,
+                ClientManagerMsg::UserRegistered(user) => self.handle_user_registered(user).await,
                 ClientManagerMsg::IsOnline(t) => self.handle_is_online(t),
-                ClientManagerMsg::GetRoomOnlineUsers(t) => self.handle_get_room_online_users(t),
+                ClientManagerMsg::UpdateRoom(t) => self.handle_update_room(t),
+                ClientManagerMsg::UpdateMultipleRooms(t) => self.handle_update_multiple_rooms(t),
             }
         }
     }
 
-    fn handle_get_room_online_users(&self, mut t: OnlineRoomUsersTransit) {
-        t.users
-            .retain(|u| self.connected_users.get(&u.id).is_some());
-
-        if t.tx_acks.send(t.users).is_err() {
-            warn!(
-                "connected clients hasmap is not synhronized with running client_tasts!!, {}",
-                Bt::new()
-            )
-        };
+    fn handle_update_room(&self, mut t: RoomUpdateTransit) {
+        self.update_room_online_users(&mut t.room);
+        t.tx_ack.send(t.room).ok();
     }
 
-    async fn handle_establish_room_comm(&mut self, t: EstablishRoomCommTransit) {
+    fn handle_update_multiple_rooms(&self, mut t: MultipleRoomsUpdateTransit) {
+        for room in &mut t.rooms {
+            self.update_room_online_users(room);
+        }
+        t.tx_ack.send(t.rooms).ok();
+    }
+
+    async fn handle_get_room_channel_tx(&mut self, t: RoomChannelTxTransit) {
         for user in &t.room_users {
             if let Some(client) = self.connected_users.get(&user.id) {
                 let transit = GetRoomTxTransit {
@@ -107,7 +106,7 @@ impl ManagerTask {
         self.connected_users.remove(&id);
     }
 
-    async fn handle_establish_direct_comm(&mut self, t: EstablishDirectCommTransit) {
+    async fn handle_establish_direct_comm(&mut self, t: DirectChannelTxTransit) {
         let client = match self.connected_users.get(&t.payload.to) {
             Some(c) => c,
             None => {
@@ -129,34 +128,7 @@ impl ManagerTask {
         };
     }
 
-    fn handle_get_connected_users(&mut self, t: GetConnectedUsersTransit) {
-        let mut data = vec![];
-        for room in t.rooms {
-            let mut users_online = vec![];
-            for user in room
-                .users
-                .iter()
-                .filter(|u| self.connected_users.get(&u.id).is_some())
-            {
-                users_online.push(user.clone());
-            }
-
-            let tui_room = TuiRoom {
-                id: room.id,
-                messages: room.messages.clone(),
-                name: room.name.clone(),
-                users: room.users.clone(),
-                users_online,
-            };
-            data.push(tui_room);
-        }
-
-        if t.tx_ack.send(data).is_err() {
-            debug!("oneshot acknowledge receiver dropped {}", Bt::new());
-        };
-    }
-
-    async fn handl_user_registered(&mut self, user: User) {
+    async fn handle_user_registered(&mut self, user: User) {
         for (_, client) in &self.connected_users {
             let (tx_ack, rx_ack) = oneshot::channel::<broadcast::Sender<Bytes>>();
 
@@ -179,5 +151,14 @@ impl ManagerTask {
             tx.send(serialized.into()).unwrap();
             break;
         }
+    }
+
+    fn update_room_online_users(&self, room: &mut RoomData) {
+        room.users_online = room
+            .users
+            .iter()
+            .cloned()
+            .filter(|u| self.connected_users.get(&u.id).is_some())
+            .collect();
     }
 }
