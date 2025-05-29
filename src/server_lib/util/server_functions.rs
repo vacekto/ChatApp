@@ -4,14 +4,14 @@ use super::types::{
         IsOnlineTransit, RegisterDataTransit, UserDataTransit, UserServerData,
     },
     server_error_types::{BincodeErr, Bt, TcpErr},
-    server_error_wrapper_types::{DataParsingErrorOriginal, TcpDataParsingError},
+    server_error_wrapper_types::TcpDataParsingError,
 };
 use crate::shared_lib::types::{
     AuthData, AuthResponse, Chunk, ClientServerConnectMsg, FileMetadata, RegisterData,
     RegisterResponse, ServerClientMsg, TextMsg, User, UserClientData,
 };
 use anyhow::anyhow;
-use backtrace::Backtrace;
+
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use tokio::{
@@ -20,47 +20,25 @@ use tokio::{
 };
 use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 
-pub fn serialize_text_msg(msg: TextMsg) -> Result<Bytes, DataParsingErrorOriginal> {
+pub fn serialize_text_msg(msg: TextMsg) -> Result<Bytes, BincodeErr> {
     let msg = ServerClientMsg::Text(msg);
-    let serialized = bincode::serialize(&msg)?;
+    let serialized = bincode::serialize(&msg).map_err(|err| BincodeErr(err, Bt::new()))?;
     Ok(Bytes::from(serialized))
 }
 
-pub fn serialize_file_chunk(chunk: Chunk) -> Result<Bytes, DataParsingErrorOriginal> {
+pub fn serialize_file_chunk(chunk: Chunk) -> Result<Bytes, BincodeErr> {
     let msg = ServerClientMsg::FileChunk(chunk);
-    let serialized = bincode::serialize(&msg)?;
+    let serialized = bincode::serialize(&msg).map_err(|err| BincodeErr(err, Bt::new()))?;
     Ok(Bytes::from(serialized))
 }
 
-pub fn serialize_file_metadata(data: FileMetadata) -> Result<Bytes, DataParsingErrorOriginal> {
+pub fn serialize_file_metadata(data: FileMetadata) -> Result<Bytes, BincodeErr> {
     let msg = ServerClientMsg::FileMetadata(data);
-    let serialized = bincode::serialize(&msg)?;
+    let serialized = bincode::serialize(&msg).map_err(|err| BincodeErr(err, Bt::new()))?;
     Ok(Bytes::from(serialized))
 }
 
 // returns file and line in which this function is called without the whole backtrace, for debugging purpuses
-pub fn get_location() -> String {
-    let bt = Backtrace::new();
-
-    let location = bt
-        .frames()
-        .iter()
-        .skip(1)
-        .flat_map(|frame| frame.symbols())
-        .find_map(|symbol| {
-            if let (Some(file), Some(line)) = (symbol.filename(), symbol.lineno()) {
-                Some((file.display().to_string(), line))
-            } else {
-                None
-            }
-        });
-
-    if let Some((file, line)) = location {
-        format!("\nlocation: {file}:{line}")
-    } else {
-        format!("(location unknown)")
-    }
-}
 
 pub async fn send_server_msg<'a>(
     msg: &ServerClientMsg,
@@ -149,12 +127,12 @@ pub async fn fetch_user_data(
     tx_client_persistence
         .send(msg)
         .await
-        .map_err(|err| anyhow!("tx_client_persistence dropped: {err} {}", get_location()))?;
+        .map_err(|err| anyhow!("tx_client_persistence dropped: {err} {}", Bt::new()))?;
 
     let init_server_data = rx_ack.await.map_err(|err| {
         anyhow!(
             "oneshot transmitter for client init got dropped: {err} {}",
-            get_location()
+            Bt::new()
         )
     })?;
 
@@ -164,7 +142,7 @@ pub async fn fetch_user_data(
         tx_ack,
         rooms: init_server_data.rooms.clone(),
     };
-    let msg = ClientManagerMsg::GetConnectedUsers(transit);
+    let msg = ClientManagerMsg::GetOnlineUsers(transit);
 
     tx_client_manager
         .send(msg)

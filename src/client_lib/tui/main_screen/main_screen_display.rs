@@ -3,8 +3,8 @@ use crate::{
         tui::app::app::App,
         util::{
             config::{
-                MESSAGES_SCROLL_RESERVE, THEME_GRAY_GREEN_DARK, THEME_GREEN, THEME_YELLOW_1,
-                THEME_YELLOW_2,
+                MESSAGES_SCROLL_RESERVE, THEME_GRAY_GREEN_DARK, THEME_GREEN, THEME_YELLOW_DARK,
+                THEME_YELLOW_LIGHT,
             },
             functions::pad_line_to_width,
             types::{ChannelKind, Contact, Focus},
@@ -62,9 +62,9 @@ impl App {
         let style_messages_title = match self.focus {
             Focus::Contacts => Style::default()
                 .fg(Color::Rgb(
-                    THEME_YELLOW_2.0,
-                    THEME_YELLOW_2.1,
-                    THEME_YELLOW_2.2,
+                    THEME_YELLOW_LIGHT.0,
+                    THEME_YELLOW_LIGHT.1,
+                    THEME_YELLOW_LIGHT.2,
                 ))
                 .bg(Color::Rgb(
                     THEME_GRAY_GREEN_DARK.0,
@@ -110,9 +110,9 @@ impl App {
         let style_contacts_title = match self.focus {
             Focus::Messages => Style::default()
                 .fg(Color::Rgb(
-                    THEME_YELLOW_2.0,
-                    THEME_YELLOW_2.1,
-                    THEME_YELLOW_2.2,
+                    THEME_YELLOW_LIGHT.0,
+                    THEME_YELLOW_LIGHT.1,
+                    THEME_YELLOW_LIGHT.2,
                 ))
                 .bg(Color::Rgb(
                     THEME_GRAY_GREEN_DARK.0,
@@ -195,14 +195,14 @@ impl App {
                         Some(id) if id == c.user.id => {
                             contact_option.style = Style::default()
                                 .fg(Color::Rgb(
-                                    THEME_YELLOW_1.0,
-                                    THEME_YELLOW_1.1,
-                                    THEME_YELLOW_1.2,
+                                    THEME_YELLOW_DARK.0,
+                                    THEME_YELLOW_DARK.1,
+                                    THEME_YELLOW_DARK.2,
                                 ))
                                 .bg(Color::Rgb(
-                                    THEME_YELLOW_2.0,
-                                    THEME_YELLOW_2.1,
-                                    THEME_YELLOW_2.2,
+                                    THEME_YELLOW_LIGHT.0,
+                                    THEME_YELLOW_LIGHT.1,
+                                    THEME_YELLOW_LIGHT.2,
                                 ))
                                 .bold();
                         }
@@ -219,14 +219,14 @@ impl App {
                         Some(id) if id == c.id => {
                             contact_item.style = Style::default()
                                 .fg(Color::Rgb(
-                                    THEME_YELLOW_1.0,
-                                    THEME_YELLOW_1.1,
-                                    THEME_YELLOW_1.2,
+                                    THEME_YELLOW_DARK.0,
+                                    THEME_YELLOW_DARK.1,
+                                    THEME_YELLOW_DARK.2,
                                 ))
                                 .bg(Color::Rgb(
-                                    THEME_YELLOW_2.0,
-                                    THEME_YELLOW_2.1,
-                                    THEME_YELLOW_2.2,
+                                    THEME_YELLOW_LIGHT.0,
+                                    THEME_YELLOW_LIGHT.1,
+                                    THEME_YELLOW_LIGHT.2,
                                 ))
                                 .bold();
                         }

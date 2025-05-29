@@ -7,7 +7,7 @@ use crate::{
             types::{ChannelKind, SelectorEntryKind},
         },
     },
-    shared_lib::types::{Channel, Chunk, ClientServerTuiMsg, FileMetadata, User},
+    shared_lib::types::{Channel, Chunk, ClientServerMsg, FileMetadata, User},
 };
 use anyhow::Result;
 use ratatui::crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
@@ -22,11 +22,13 @@ impl App {
                     KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
                         self.exit()
                     }
-                    KeyCode::Char('f') | KeyCode::Char('F')
-                        if key_event.modifiers.contains(KeyModifiers::CONTROL) =>
-                    {
+                    KeyCode::Char('F') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
                         self.close_file_selector()?
                     }
+                    KeyCode::Char('f') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                        self.close_file_selector()?
+                    }
+
                     KeyCode::Esc => self.close_file_selector()?,
                     KeyCode::Up => self.file_selector.move_up()?,
                     KeyCode::Down => self.file_selector.move_down()?,
@@ -112,7 +114,7 @@ impl App {
                 from,
             };
 
-            let metadata = ClientServerTuiMsg::FileMetadata(meta);
+            let metadata = ClientServerMsg::FileMetadata(meta);
             tx_tui_tcp_msg.send(metadata)?;
 
             loop {

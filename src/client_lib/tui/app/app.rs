@@ -1,19 +1,22 @@
 use crate::{
     client_lib::{
         global_states::{app_state::get_global_state, thread_logger::get_thread_runner},
+        tui::accessories::create_room::create_room::RoomCreator,
         util::{
             config::THEME_GRAY_GREEN_LIGHT,
             types::{
-                ActiveChannel, ActiveEntryInput, ActiveEntryScreen, ActiveScreen, ActiveStream,
-                ChannelKind, FileSelector, Focus, ImgRender, MpscChannel, Notification, TuiUpdate,
+                ActiveChannel, ActiveCreateRoomInput, ActiveEntryInput, ActiveEntryScreen,
+                ActiveScreen, ActiveStream, ChannelKind, FileSelector, Focus, ImgRender,
+                MpscChannel, Notification, TuiUpdate,
             },
         },
     },
     shared_lib::{
         config::PUBLIC_ROOM_ID,
         types::{
-            Channel, Chunk, ClientServerTuiMsg, DirectChannel, RegisterResponse, RoomUpdateTransit,
-            TextMsg, TuiMsg, TuiRoom, User, UserClientData,
+            Channel, Chunk, ClientServerMsg, DirectChannel, JoinRoomNotification,
+            LeaveRoomNotification, RegisterResponse, Response, TextMsg, TuiMsg, TuiRoom, User,
+            UserClientData,
         },
     },
 };
@@ -48,12 +51,15 @@ pub struct App {
     pub active_screen: ActiveScreen,
     pub active_entry_input: ActiveEntryInput,
     pub active_entry_screen: ActiveEntryScreen,
+    pub active_create_room_input: ActiveCreateRoomInput,
     pub display_file_selector: bool,
+    pub display_room_creator: bool,
     pub file_selector: FileSelector,
+    pub room_creator: RoomCreator,
     pub login_screen_notification: Option<Notification>,
     pub main_scroll_offset: usize,
     pub tui_channel: MpscChannel<TuiUpdate, TuiUpdate>,
-    pub tx_tui_tcp_msg: crossbeam::channel::Sender<ClientServerTuiMsg>,
+    pub tx_tui_tcp_msg: crossbeam::channel::Sender<ClientServerMsg>,
     pub tx_tui_tcp_file: crossbeam::channel::Sender<Chunk>,
     pub focus: Focus,
 }
@@ -93,8 +99,11 @@ impl App {
             active_screen: ActiveScreen::Entry,
             active_entry_screen: ActiveEntryScreen::Login,
             active_entry_input: ActiveEntryInput::Username,
+            active_create_room_input: ActiveCreateRoomInput::Name,
             display_file_selector: false,
+            display_room_creator: false,
             file_selector: FileSelector::new(),
+            room_creator: RoomCreator::new(),
             login_screen_notification: None,
             main_scroll_offset: 0,
             tui_channel: MpscChannel {
@@ -125,10 +134,18 @@ impl App {
                 TuiUpdate::Init(data) => self.handle_init_data(data),
                 TuiUpdate::UserConnected(user) => self.handle_user_connected(user),
                 TuiUpdate::UserDisconnected(user) => self.handle_user_disconnected(user),
+                TuiUpdate::JoinRoom(res) => self.handle_join_room(res),
             }
         }
 
         Ok(())
+    }
+
+    fn handle_join_room(&mut self, res: Response<TuiRoom>) {
+        match res {
+            Response::Failure(msg) => self.room_creator.notification = Some(msg),
+            Response::Success(room) => self.room_channels.push(room),
+        }
     }
 
     fn handle_register_response(&mut self, res: RegisterResponse) {
@@ -181,7 +198,7 @@ impl App {
         }
     }
 
-    fn handle_user_left_room(&mut self, update: RoomUpdateTransit) {
+    fn handle_user_left_room(&mut self, update: LeaveRoomNotification) {
         if let Some(room) = self
             .room_channels
             .iter_mut()
@@ -195,22 +212,13 @@ impl App {
         };
     }
 
-    fn handle_user_joined_room(&mut self, update: RoomUpdateTransit) {
+    fn handle_user_joined_room(&mut self, update: JoinRoomNotification) {
         if let Some(room) = self
             .room_channels
             .iter_mut()
             .find(|r| r.id == update.room_id)
         {
             room.users.push(update.user.clone());
-
-            // if update.room_id == Uuid::from_str(PUBLIC_ROOM_ID).unwrap() {
-            //     let new_channel = DirectChannel {
-            //         messages: VecDeque::new(),
-            //         user: update.user,
-            //     };
-
-            //     self.direct_channels.push(new_channel);
-            // };
         };
     }
 
@@ -275,6 +283,10 @@ impl App {
         if self.display_file_selector {
             frame.render_widget(&mut self.file_selector, frame.area());
         }
+
+        if self.display_room_creator {
+            frame.render_widget(&mut self.room_creator, frame.area());
+        }
     }
 
     pub fn init(&mut self, init: User) {
@@ -283,7 +295,7 @@ impl App {
     }
 
     pub fn logout(&mut self) -> Result<()> {
-        let msg = ClientServerTuiMsg::Logout;
+        let msg = ClientServerMsg::Logout;
         self.tx_tui_tcp_msg.send(msg)?;
         self.active_screen = ActiveScreen::Entry;
         self.active_entry_screen = ActiveEntryScreen::Login;
@@ -295,10 +307,15 @@ impl App {
     }
 
     fn handle_events(&mut self, event: Event) -> Result<()> {
-        match (&self.active_screen, self.display_file_selector) {
-            (ActiveScreen::Entry, _) => self.handle_entry_screen_event(event)?,
-            (ActiveScreen::Main, true) => self.handle_file_selector_key_event(event)?,
-            (ActiveScreen::Main, false) => self.handle_main_screen_event(event)?,
+        match (
+            &self.active_screen,
+            self.display_file_selector,
+            self.display_room_creator,
+        ) {
+            (ActiveScreen::Entry, _, _) => self.handle_entry_screen_event(event)?,
+            (ActiveScreen::Main, false, false) => self.handle_main_screen_event(event)?,
+            (ActiveScreen::Main, true, _) => self.handle_file_selector_key_event(event)?,
+            (ActiveScreen::Main, _, true) => self.handle_create_room_event(event)?,
         }
 
         Ok(())
@@ -332,7 +349,7 @@ impl App {
             messages.push_front(TuiMsg::TextMsg(msg.clone()));
         };
 
-        let msg = ClientServerTuiMsg::Text(msg);
+        let msg = ClientServerMsg::Text(msg);
 
         tx_tui_tcp.send(msg)?;
         self.main_text_area = TextArea::default();

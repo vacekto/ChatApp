@@ -1,4 +1,7 @@
-use crate::client_lib::util::{config::TCP_CHUNK_BUFFER_SIZE, types::ImgRender};
+use crate::{
+    client_lib::util::{config::TCP_CHUNK_BUFFER_SIZE, types::ImgRender},
+    server_lib::util::types::server_data_types::CreateRoomResponse,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use uuid::Uuid;
@@ -32,11 +35,19 @@ pub struct Chunk {
 }
 
 #[derive(Deserialize, Serialize, Debug)]
-pub enum ClientServerTuiMsg {
+pub enum ClientServerMsg {
     Text(TextMsg),
     FileChunk(Chunk),
     FileMetadata(FileMetadata),
     Logout,
+    CreateRoom(RoomUpdateTransit),
+    JoinRoom(RoomUpdateTransit),
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct RoomUpdateTransit {
+    pub room_name: String,
+    pub room_password: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -44,17 +55,27 @@ pub enum ServerClientMsg {
     Text(TextMsg),
     FileChunk(Chunk),
     FileMetadata(FileMetadata),
-    UserJoinedRoom(RoomUpdateTransit),
-    UserLeftRoom(RoomUpdateTransit),
+    UserJoinedRoom(JoinRoomNotification),
+    UserLeftRoom(LeaveRoomNotification),
     Auth(AuthResponse),
     Register(RegisterResponse),
     Init(UserClientData),
     UserConnected(User),
     UserDisconnected(User),
+    CreateRoomResponse(CreateRoomResponse),
+    JoinRoomResponse(JoinRoomServerResponse),
+}
+
+pub type JoinRoomServerResponse = Response<TuiRoom>;
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct JoinRoomNotification {
+    pub user: User,
+    pub room_id: Uuid,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
-pub struct RoomUpdateTransit {
+pub struct LeaveRoomNotification {
     pub user: User,
     pub room_id: Uuid,
 }
@@ -83,14 +104,6 @@ pub struct FileMetadata {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct RoomChannel {
-    pub id: Uuid,
-    pub name: String,
-    pub messages: VecDeque<TuiMsg>,
-    pub users: Vec<User>,
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct DirectChannel {
     pub user: User,
     pub messages: VecDeque<TuiMsg>,
@@ -109,17 +122,15 @@ pub struct AuthData {
     pub password: String,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
-pub enum AuthResponse {
-    Success(User),
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+pub enum Response<T> {
+    Success(T),
     Failure(String),
 }
 
-#[derive(Deserialize, Serialize, Debug)]
-pub enum RegisterResponse {
-    Success(User),
-    Failure(String),
-}
+pub type AuthResponse = Response<User>;
+
+pub type RegisterResponse = Response<User>;
 
 #[derive(Deserialize, Serialize, Debug)]
 pub enum ClientServerConnectMsg {

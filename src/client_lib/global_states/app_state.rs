@@ -1,6 +1,6 @@
 use crate::{
     client_lib::util::types::{CrossbemChannel, MpscChannel, TcpStreamMsg, TuiUpdate},
-    shared_lib::types::{Chunk, ClientServerTuiMsg},
+    shared_lib::types::{Chunk, ClientServerMsg},
 };
 use once_cell::sync::OnceCell;
 use std::{
@@ -12,7 +12,7 @@ use std::{
 pub struct GlobalData {
     pub tcp: TcpStream,
     pub tui_tcp_file_channel: CrossbemChannel<Chunk, Chunk>,
-    pub tui_tcp_msg_channel: CrossbemChannel<ClientServerTuiMsg, ClientServerTuiMsg>,
+    pub tui_tcp_msg_channel: CrossbemChannel<ClientServerMsg, ClientServerMsg>,
     pub tcp_stream_channel: MpscChannel<TcpStreamMsg, TcpStreamMsg>,
     pub tui_update_channel: MpscChannel<TuiUpdate, TuiUpdate>,
 }
@@ -20,7 +20,7 @@ pub struct GlobalData {
 static GLOBAL: OnceCell<Mutex<GlobalData>> = OnceCell::new();
 
 pub fn init_global_state(tcp: TcpStream) {
-    let (tx_tui_tcp_msg, rx_tui_tcp_msg) = crossbeam::channel::bounded::<ClientServerTuiMsg>(30);
+    let (tx_tui_tcp_msg, rx_tui_tcp_msg) = crossbeam::channel::bounded::<ClientServerMsg>(30);
     let (tx_tui_tcp_file, rx_tui_tcp_file) = crossbeam::channel::bounded::<Chunk>(1000);
     let (tx_tcp_stream, rx_tcp_stream) = mpsc::channel::<TcpStreamMsg>();
     let (tx_tui_update, rx_tui_update) = mpsc::channel::<TuiUpdate>();

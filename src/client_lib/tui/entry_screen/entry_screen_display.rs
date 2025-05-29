@@ -1,7 +1,7 @@
 use crate::client_lib::{
     tui::app::app::App,
     util::{
-        config::{THEME_GREEN, THEME_YELLOW_1, THEME_YELLOW_2},
+        config::{THEME_GREEN, THEME_YELLOW_DARK, THEME_YELLOW_LIGHT},
         types::{ActiveEntryInput, ActiveEntryScreen, Notification},
     },
 };
@@ -98,9 +98,9 @@ impl App {
         Text::from(vec![Line::from(
             Span::from(headline_text)
                 .style(Style::default().fg(Color::Rgb(
-                    THEME_YELLOW_1.0,
-                    THEME_YELLOW_1.1,
-                    THEME_YELLOW_1.2,
+                    THEME_YELLOW_DARK.0,
+                    THEME_YELLOW_DARK.1,
+                    THEME_YELLOW_DARK.2,
                 )))
                 .bold(),
         )
@@ -110,9 +110,9 @@ impl App {
         let style_empty_cursor = Style::default();
         let style_active_cursor = Style::new()
             .fg(Color::Rgb(
-                THEME_YELLOW_1.0,
-                THEME_YELLOW_1.1,
-                THEME_YELLOW_1.2,
+                THEME_YELLOW_DARK.0,
+                THEME_YELLOW_DARK.1,
+                THEME_YELLOW_DARK.2,
             ))
             .add_modifier(Modifier::UNDERLINED);
 
@@ -195,9 +195,9 @@ impl App {
             .fg(Color::Rgb(THEME_GREEN.0, THEME_GREEN.1, THEME_GREEN.2))
             .bold();
         let style_input_border = Style::default().fg(Color::Rgb(
-            THEME_YELLOW_2.0,
-            THEME_YELLOW_2.1,
-            THEME_YELLOW_2.2,
+            THEME_YELLOW_LIGHT.0,
+            THEME_YELLOW_LIGHT.1,
+            THEME_YELLOW_LIGHT.2,
         ));
 
         let title_username = Span::styled(" Username ", style_input_title.clone());

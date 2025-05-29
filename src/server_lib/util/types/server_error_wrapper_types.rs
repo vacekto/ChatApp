@@ -2,18 +2,18 @@ use thiserror::Error;
 
 use super::server_error_types::{BincodeErr, TcpErr};
 
-#[derive(Error, Debug)]
-pub enum DataParsingErrorOriginal {
-    #[error("{0:?}")]
-    TcpReadWrite(#[from] std::io::Error),
-    #[error("{0:?}")]
-    Bincode(#[from] Box<bincode::ErrorKind>),
-}
+// #[derive(Error, Debug)]
+// pub enum DataParsingErrorOriginal {
+//     #[error("{0:?}")]
+//     TcpReadWrite(#[from] std::io::Error),
+//     #[error("{0:?}")]
+//     Bincode(#[from] Box<bincode::ErrorKind>),
+// }
 
 #[derive(Error, Debug)]
 pub enum ClientInitError {
     #[error(transparent)]
-    DataParsing(#[from] DataParsingErrorOriginal),
+    DataParsing(#[from] TcpDataParsingError),
     #[error("{0}")]
     Unexpected(String),
 }

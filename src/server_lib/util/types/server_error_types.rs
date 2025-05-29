@@ -1,3 +1,5 @@
+use std::env;
+
 use backtrace::Backtrace;
 use thiserror::Error;
 
@@ -22,6 +24,7 @@ impl Bt {
         }
     }
 
+    // compactly writes out location where the Bt::new constructor was called
     fn get_location() -> String {
         let bt = Backtrace::new();
 
@@ -38,8 +41,13 @@ impl Bt {
                 }
             });
 
+        let whole_backtrace = match env::var("RUST_BACKTRACE") {
+            Ok(value) if value == "1" => format!("\nbacktrace: \n{bt:?}"),
+            _ => format!(""),
+        };
+
         if let Some((file, line)) = location {
-            format!("\nlocation: {file}:{line}")
+            format!("\nlocation: {file}:{line}{whole_backtrace}")
         } else {
             format!("(location unknown)")
         }

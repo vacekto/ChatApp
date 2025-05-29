@@ -7,8 +7,10 @@ use chat_app::{
         persistence_task::spawn_persistence_task,
         util::{
             config::{CLIENT_MANAGER_CAPACITY, CLIENT_PERSISTENCE_CAPACITY},
-            server_functions::get_location,
-            types::server_data_types::{ClientManagerMsg, ClientPersistenceMsg},
+            types::{
+                server_data_types::{ClientManagerMsg, ClientPersistenceMsg},
+                server_error_types::Bt,
+            },
         },
     },
     shared_lib::config::SERVER_ADDR,
@@ -52,7 +54,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     };
                 });
             }
-            Err(err) => error!("Error establishing connection: {}, {}", err, get_location()),
+            Err(err) => error!("Error establishing connection: {}, {}", err, Bt::new()),
         }
     }
 }

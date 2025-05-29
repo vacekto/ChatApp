@@ -2,11 +2,11 @@ use super::util::config::ROOM_CAPACITY;
 use super::util::types::server_data_types::{
     Client, ClientManagerMsg, EstablishDirectCommTransit, EstablishRoomCommTransit,
     GetConnectedUsersTransit, GetRoomTxTransit, IsOnlineTransit, ManagerClientMsg,
+    OnlineRoomUsersTransit,
 };
-use crate::server_lib::util::server_functions::get_location;
 use crate::server_lib::util::types::server_error_types::Bt;
 use crate::shared_lib::config::PUBLIC_ROOM_ID;
-use crate::shared_lib::types::{RoomUpdateTransit, ServerClientMsg, TuiRoom, User};
+use crate::shared_lib::types::{JoinRoomNotification, ServerClientMsg, TuiRoom, User};
 use bytes::Bytes;
 use log::{debug, error, warn};
 use std::collections::HashMap;
@@ -48,11 +48,44 @@ impl ManagerTask {
                     self.handle_establish_direct_comm(t).await
                 }
                 ClientManagerMsg::EstablishRoomComm(t) => self.handle_establish_room_comm(t).await,
-                ClientManagerMsg::GetConnectedUsers(t) => self.handle_get_connected_users(t),
+                ClientManagerMsg::GetOnlineUsers(t) => self.handle_get_connected_users(t),
                 ClientManagerMsg::UserRegistered(user) => self.handl_user_registered(user).await,
                 ClientManagerMsg::IsOnline(t) => self.handle_is_online(t),
+                ClientManagerMsg::GetRoomOnlineUsers(t) => self.handle_get_room_online_users(t),
             }
         }
+    }
+
+    fn handle_get_room_online_users(&self, mut t: OnlineRoomUsersTransit) {
+        t.users
+            .retain(|u| self.connected_users.get(&u.id).is_some());
+
+        if t.tx_acks.send(t.users).is_err() {
+            warn!(
+                "connected clients hasmap is not synhronized with running client_tasts!!, {}",
+                Bt::new()
+            )
+        };
+    }
+
+    async fn handle_establish_room_comm(&mut self, t: EstablishRoomCommTransit) {
+        for user in &t.room_users {
+            if let Some(client) = self.connected_users.get(&user.id) {
+                let transit = GetRoomTxTransit {
+                    room_id: t.room_id,
+                    tx_ack: t.ack,
+                };
+                let msg = ManagerClientMsg::GetRoomTransmitter(transit);
+                if let Err(err) = client.tx.send(msg).await {
+                    warn!("connected clients hasmap is not synhronized with running client_tasts!!, {} {}", err, Bt::new())
+                };
+                return;
+            };
+        }
+
+        let (room_tx, _) = broadcast::channel(ROOM_CAPACITY);
+
+        t.ack.send(room_tx).ok();
     }
 
     fn handle_is_online(&self, t: IsOnlineTransit) {
@@ -60,6 +93,7 @@ impl ManagerTask {
             .connected_users
             .iter()
             .any(|(_, c)| c.user.username == t.username);
+
         if t.ack.send(is_online).is_err() {
             debug!("oneshot acknowledge receiver dropped {}", Bt::new());
         };
@@ -77,7 +111,7 @@ impl ManagerTask {
         let client = match self.connected_users.get(&t.payload.to) {
             Some(c) => c,
             None => {
-                warn!("Client not found among online clients, {}", get_location());
+                warn!("Client not found among online clients, {}", Bt::new());
                 return;
             }
         };
@@ -90,28 +124,9 @@ impl ManagerTask {
         {
             error!(
                 "error during establishing direct communication, {}",
-                get_location()
+                Bt::new()
             );
         };
-    }
-
-    async fn handle_establish_room_comm(&mut self, t: EstablishRoomCommTransit) {
-        for user in &t.room_users {
-            if let Some(client) = self.connected_users.get(&user.id) {
-                let transit = GetRoomTxTransit {
-                    room_id: t.room_id,
-                    tx_ack: t.ack,
-                };
-                let msg = ManagerClientMsg::GetRoomTransmitter(transit);
-                if let Err(err) = client.tx.send(msg).await {
-                    warn!("connected clients hasmap is not synhronized with running client_tasts!!, {} {}", err, get_location())
-                };
-                return;
-            };
-        }
-
-        let (room_tx, _) = broadcast::channel(ROOM_CAPACITY);
-        t.ack.send(room_tx).ok();
     }
 
     fn handle_get_connected_users(&mut self, t: GetConnectedUsersTransit) {
@@ -154,7 +169,7 @@ impl ManagerTask {
 
             let tx = rx_ack.await.unwrap();
 
-            let transit = RoomUpdateTransit {
+            let transit = JoinRoomNotification {
                 room_id: Uuid::from_str(PUBLIC_ROOM_ID).unwrap(),
                 user,
             };

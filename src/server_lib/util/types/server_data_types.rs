@@ -1,9 +1,11 @@
+use std::collections::VecDeque;
+
 use bytes::Bytes;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use uuid::Uuid;
 
 use crate::shared_lib::types::{
-    AuthData, AuthResponse, RegisterData, RegisterResponse, RoomChannel, TuiRoom, User,
+    AuthData, AuthResponse, RegisterData, RegisterResponse, Response, TuiMsg, TuiRoom, User,
 };
 
 #[derive(Debug)]
@@ -20,7 +22,7 @@ pub struct EstablishDirectCommTransit {
 
 pub struct GetConnectedUsersTransit {
     pub tx_ack: oneshot::Sender<Vec<TuiRoom>>,
-    pub rooms: Vec<RoomChannel>,
+    pub rooms: Vec<DbRoom>,
 }
 
 pub enum ClientManagerMsg {
@@ -28,9 +30,15 @@ pub enum ClientManagerMsg {
     ClientDropped(Uuid),
     EstablishDirectComm(EstablishDirectCommTransit),
     EstablishRoomComm(EstablishRoomCommTransit),
-    GetConnectedUsers(GetConnectedUsersTransit),
+    GetOnlineUsers(GetConnectedUsersTransit),
     UserRegistered(User),
     IsOnline(IsOnlineTransit),
+    GetRoomOnlineUsers(OnlineRoomUsersTransit),
+}
+
+pub struct OnlineRoomUsersTransit {
+    pub tx_acks: oneshot::Sender<Vec<User>>,
+    pub users: Vec<User>,
 }
 
 pub struct IsOnlineTransit {
@@ -52,11 +60,6 @@ pub enum ManagerClientMsg {
 pub struct GetRoomTxTransit {
     pub tx_ack: oneshot::Sender<broadcast::Sender<Bytes>>,
     pub room_id: Uuid,
-}
-
-pub struct JoinRoomTransit {
-    pub room_id: Uuid,
-    pub tx: oneshot::Sender<broadcast::Sender<Bytes>>,
 }
 
 pub struct MpscChannel<T = Bytes, R = Bytes> {
@@ -86,10 +89,43 @@ pub enum ClientTaskResult {
 
 pub enum ClientPersistenceMsg {
     GetUserData(UserDataTransit),
-    UserJoinedRoom(UserRoomTransit),
-    UserLeftRoom(UserRoomTransit),
+    UserJoinedRoom(UserRoomData),
+    UserLeftRoom(UserRoomData),
     Register(RegisterDataTransit),
     Authenticate(AuthTransit),
+    CreateRoom(CreateRoomServerTransit),
+    JoinRoom(JoinRoomServerTransit),
+}
+
+pub type CreateRoomResponse = Response<TuiRoom>;
+pub type JoinRoommPersistenceResponse = Response<JoinRoomPersistenceData>;
+pub struct JoinRoomPersistenceData {
+    pub room_users: Vec<User>,
+    pub room_id: Uuid,
+    pub room_name: String,
+}
+
+pub struct JoinRoomServerTransit {
+    pub tx: oneshot::Sender<JoinRoommPersistenceResponse>,
+    pub room_name: String,
+    pub room_password: Option<String>,
+    pub user: User,
+}
+
+pub struct CreateRoomServerTransit {
+    pub tx: oneshot::Sender<CreateRoomResponse>,
+    pub room_name: String,
+    pub room_password: Option<String>,
+    pub username: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct DbRoom {
+    pub id: Uuid,
+    pub name: String,
+    pub messages: VecDeque<TuiMsg>,
+    pub users: Vec<User>,
+    pub password: Option<String>,
 }
 
 pub struct AuthTransit {
@@ -98,12 +134,12 @@ pub struct AuthTransit {
 }
 
 pub struct RegisterDataTransit {
-    pub data: RegisterData,
     pub tx: oneshot::Sender<RegisterResponse>,
+    pub data: RegisterData,
 }
 
 #[derive(Debug)]
-pub struct UserRoomTransit {
+pub struct UserRoomData {
     pub user: User,
     pub room_id: Uuid,
 }
@@ -115,7 +151,7 @@ pub struct UserDataTransit {
 }
 #[derive(Debug)]
 pub struct UserServerData {
-    pub rooms: Vec<RoomChannel>,
+    pub rooms: Vec<DbRoom>,
 }
 
 pub struct DbUser {
@@ -123,10 +159,4 @@ pub struct DbUser {
     pub id: Uuid,
     pub password: String,
     pub rooms: Vec<Uuid>,
-}
-
-pub struct DbRoomChannel {
-    pub users: Vec<String>,
-    pub id: Uuid,
-    pub password: Option<String>,
 }

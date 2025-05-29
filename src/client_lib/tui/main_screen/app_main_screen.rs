@@ -67,6 +67,20 @@ impl App {
     pub fn handle_main_screen_event(&mut self, event: Event) -> Result<()> {
         match event {
             Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
+                if ((key_event.code == KeyCode::Char('f'))
+                    || (key_event.code == KeyCode::Char('F')))
+                    && key_event.modifiers.contains(KeyModifiers::CONTROL)
+                {
+                    self.display_file_selector = true
+                }
+
+                if ((key_event.code == KeyCode::Char('r'))
+                    || (key_event.code == KeyCode::Char('R')))
+                    && key_event.modifiers.contains(KeyModifiers::CONTROL)
+                {
+                    self.display_room_creator = true
+                }
+
                 match self.focus {
                     Focus::Contacts => self.handle_contacts_event(key_event)?,
                     Focus::Messages => self.handle_messages_event(key_event)?,
@@ -84,11 +98,7 @@ impl App {
                 self.exit()
             }
             KeyCode::Tab => self.switch_focus(),
-            KeyCode::Char('f') | KeyCode::Char('F')
-                if key_event.modifiers.contains(KeyModifiers::CONTROL) =>
-            {
-                self.display_file_selector = true
-            }
+
             KeyCode::Esc => self.logout()?,
             KeyCode::Up => self.move_active_channel_up(),
             KeyCode::Down => self.move_active_channel_down(),
@@ -108,11 +118,7 @@ impl App {
                 self.exit()
             }
             KeyCode::Tab => self.switch_focus(),
-            KeyCode::Char('f') | KeyCode::Char('F')
-                if key_event.modifiers.contains(KeyModifiers::CONTROL) =>
-            {
-                self.display_file_selector = true
-            }
+
             KeyCode::Enter => self.send_message()?,
             KeyCode::Esc => self.logout()?,
             KeyCode::Up => self.move_scrollbar_up(),

@@ -51,6 +51,12 @@ pub fn listen_for_server() -> Result<()> {
             ServerClientMsg::UserDisconnected(user) => {
                 tx_tui_update.send(TuiUpdate::UserDisconnected(user))?
             }
+            ServerClientMsg::CreateRoomResponse(res) => {
+                tx_tui_update.send(TuiUpdate::JoinRoom(res))?
+            }
+            ServerClientMsg::JoinRoomResponse(res) => {
+                tx_tui_update.send(TuiUpdate::JoinRoom(res))?
+            }
         }
     }
 }

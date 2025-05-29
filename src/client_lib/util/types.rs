@@ -1,6 +1,6 @@
 use crate::shared_lib::types::{
-    AuthResponse, Channel, Chunk, DirectChannel, FileMetadata, RegisterResponse, RoomUpdateTransit,
-    TextMsg, TuiRoom, User, UserClientData,
+    AuthResponse, Channel, Chunk, DirectChannel, FileMetadata, JoinRoomNotification,
+    LeaveRoomNotification, RegisterResponse, Response, TextMsg, TuiRoom, User, UserClientData,
 };
 use ratatui::crossterm::event::Event;
 use serde::{Deserialize, Serialize};
@@ -30,8 +30,9 @@ pub enum TuiUpdate {
     CrosstermEvent(Event),
     Img(ImgRender),
     Text(TextMsg),
-    UserJoinedRoom(RoomUpdateTransit),
-    UserLeftRoom(RoomUpdateTransit),
+    UserJoinedRoom(JoinRoomNotification),
+    UserLeftRoom(LeaveRoomNotification),
+    JoinRoom(Response<TuiRoom>),
     Auth(AuthResponse),
     Init(UserClientData),
     UserDisconnected(User),
@@ -70,6 +71,7 @@ pub struct ActiveChannel {
     pub id: Option<Uuid>,
 }
 
+#[derive(PartialEq)]
 pub enum ActiveScreen {
     Main,
     Entry,
@@ -135,4 +137,15 @@ pub enum TcpStreamMsg {
 pub enum Focus {
     Contacts,
     Messages,
+}
+
+#[derive(PartialEq, Debug)]
+pub enum ActiveCreateRoomInput {
+    Name,
+    Password,
+}
+
+pub enum RoomAction {
+    Create,
+    Join,
 }

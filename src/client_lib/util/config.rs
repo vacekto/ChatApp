@@ -10,5 +10,5 @@ pub const MESSAGES_SCROLL_RESERVE: usize = 50;
 pub const THEME_GRAY_GREEN_DARK: (u8, u8, u8) = (43, 51, 57);
 pub const THEME_GRAY_GREEN_LIGHT: (u8, u8, u8) = (50, 61, 67);
 pub const THEME_GREEN: (u8, u8, u8) = (131, 192, 146);
-pub const THEME_YELLOW_1: (u8, u8, u8) = (219, 188, 127);
-pub const THEME_YELLOW_2: (u8, u8, u8) = (92, 107, 85);
+pub const THEME_YELLOW_DARK: (u8, u8, u8) = (219, 188, 127);
+pub const THEME_YELLOW_LIGHT: (u8, u8, u8) = (92, 107, 85);
