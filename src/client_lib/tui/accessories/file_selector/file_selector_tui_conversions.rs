@@ -34,7 +34,7 @@ impl From<&SelectorEntry> for Line<'static> {
             (SelectorEntryKind::File, false) => Style::new().fg(Color::White),
             (SelectorEntryKind::Folder, false) => Style::new().fg(dark_gray),
             (SelectorEntryKind::File, true) => Style::new().fg(yellow_dark),
-            (SelectorEntryKind::Folder, true) => Style::new().fg(yellow_dark),
+            (SelectorEntryKind::Folder, true) => Style::new().fg(Color::DarkGray),
         };
 
         let icon = match s.kind {

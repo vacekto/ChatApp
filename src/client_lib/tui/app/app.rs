@@ -98,7 +98,7 @@ impl App {
             direct_channels: vec![],
             room_channels: vec![],
             data_streams: HashMap::new(),
-            active_screen: ActiveScreen::Main,
+            active_screen: ActiveScreen::Entry,
             active_entry_screen: ActiveEntryScreen::Login,
             active_entry_input: ActiveEntryInput::Username,
             active_create_room_input: ActiveCreateRoomInput::Name,

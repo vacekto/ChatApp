@@ -1,10 +1,10 @@
+use anyhow::Result;
 use std::{env, path::PathBuf};
 
 use crate::client_lib::util::{
-    config::{FILES_FOR_TRANSFER, FILES_IMG_TO_ASCII},
+    config::FILES_IMG_TO_ASCII,
     types::{FileAction, SelectorEntry, SelectorEntryKind},
 };
-use anyhow::Result;
 
 pub struct FileSelector {
     pub current_location: PathBuf,
@@ -99,22 +99,31 @@ impl FileSelector {
         let mut entries: Vec<SelectorEntry> = vec![back];
         let dir = std::fs::read_dir(&self.current_location)?;
 
-        let allowed_files: Vec<_> = match self.active_action {
-            FileAction::ASCII => FILES_IMG_TO_ASCII.into(),
-            FileAction::File => FILES_FOR_TRANSFER.into(),
-        };
-
         for file in dir {
-            let file_entry = match file {
+            let file = match file {
                 Err(_) => continue,
                 Ok(entry) => entry,
             };
-            let filename = file_entry.file_name();
-            let filename = filename.to_string_lossy();
-            let suffix = filename.split(".").last().unwrap();
-            let is_dir = file_entry.file_type()?.is_dir();
 
-            if !allowed_files.contains(&suffix) && !is_dir {
+            let file_metadata = file.metadata()?;
+
+            if (file_metadata.is_dir() && !std::fs::read_dir(file.path()).is_ok())
+                || (file_metadata.is_file() && !std::fs::File::open(file.path()).is_ok())
+                || file_metadata.is_symlink()
+            {
+                continue;
+            }
+
+            let filename = file.file_name();
+            let filename = filename.to_string_lossy();
+
+            let suffix = filename.split(".").last().unwrap();
+            let is_dir = file.file_type()?.is_dir();
+
+            if self.active_action == FileAction::ASCII
+                && !FILES_IMG_TO_ASCII.contains(&suffix)
+                && !is_dir
+            {
                 continue;
             };
 

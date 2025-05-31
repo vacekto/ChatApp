@@ -144,6 +144,7 @@ pub enum RoomAction {
     Join,
 }
 
+#[derive(PartialEq)]
 pub enum FileAction {
     ASCII,
     File,
