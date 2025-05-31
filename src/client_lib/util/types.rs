@@ -5,7 +5,7 @@ use crate::shared_lib::types::{
 };
 use ratatui::crossterm::event::Event;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs::File, path::PathBuf, sync::mpsc};
+use std::{collections::HashMap, fs::File, sync::mpsc};
 use uuid::Uuid;
 
 #[derive(Debug, Default)]
@@ -121,13 +121,6 @@ pub enum SelectorEntryKind {
     File,
 }
 
-pub struct FileSelector {
-    pub current_location: PathBuf,
-    pub selected_index: usize,
-    pub entries: Vec<SelectorEntry>,
-    pub scroll_offset: u16,
-}
-
 #[derive(Debug)]
 pub enum TcpStreamMsg {
     FileChunk(Chunk),
@@ -149,4 +142,9 @@ pub enum ActiveCreateRoomInput {
 pub enum RoomAction {
     Create,
     Join,
+}
+
+pub enum FileAction {
+    ASCII,
+    File,
 }

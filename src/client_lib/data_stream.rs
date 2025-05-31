@@ -1,11 +1,3 @@
-use std::{collections::HashMap, io::Write, path::Path, sync::mpsc};
-
-use anyhow::Result;
-use image::imageops::FilterType;
-use uuid::Uuid;
-
-use crate::shared_lib::types::{Chunk, FileMetadata};
-
 use super::{
     global_states::{app_state::get_global_state, thread_logger::get_thread_runner},
     util::{
@@ -13,6 +5,11 @@ use super::{
         types::{ActiveStream, ImgRender, TcpStreamMsg, TuiUpdate},
     },
 };
+use crate::shared_lib::types::{Chunk, FileMetadata};
+use anyhow::Result;
+use image::imageops::FilterType;
+use std::{collections::HashMap, io::Write, path::Path, sync::mpsc};
+use uuid::Uuid;
 
 pub fn handle_file_streaming() -> Result<()> {
     let mut data_streams = HashMap::<Uuid, ActiveStream>::new();
@@ -39,7 +36,7 @@ pub fn handle_file_streaming() -> Result<()> {
     Ok(())
 }
 
-pub fn handle_file_chunk(
+fn handle_file_chunk(
     chunk: Chunk,
     data_streams: &mut HashMap<Uuid, ActiveStream>,
     tx_tui: mpsc::Sender<TuiUpdate>,

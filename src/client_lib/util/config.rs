@@ -1,5 +1,5 @@
 pub const FILES_DIR: &str = "./files/";
-pub const FILES_FOR_TRANSFER: [&str; 3] = ["txt", "png", "jpg"];
+pub const FILES_FOR_TRANSFER: [&str; 1] = ["txt"];
 pub const FILES_IMG_TO_ASCII: [&str; 2] = ["png", "jpg"];
 
 pub const TCP_CHUNK_BUFFER_SIZE: usize = 8192;

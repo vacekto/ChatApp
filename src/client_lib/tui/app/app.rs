@@ -1,13 +1,15 @@
 use crate::{
     client_lib::{
         global_states::{app_state::get_global_state, thread_logger::get_thread_runner},
-        tui::accessories::create_room::create_room::RoomCreator,
+        tui::accessories::{
+            create_room::create_room::RoomCreator, file_selector::file_selector::FileSelector,
+        },
         util::{
             config::THEME_GRAY_GREEN_LIGHT,
             types::{
                 ActiveChannel, ActiveCreateRoomInput, ActiveEntryInput, ActiveEntryScreen,
-                ActiveScreen, ActiveStream, ChannelKind, FileSelector, Focus, ImgRender,
-                MpscChannel, Notification, TuiUpdate,
+                ActiveScreen, ActiveStream, ChannelKind, Focus, ImgRender, MpscChannel,
+                Notification, TuiUpdate,
             },
         },
     },
@@ -96,7 +98,7 @@ impl App {
             direct_channels: vec![],
             room_channels: vec![],
             data_streams: HashMap::new(),
-            active_screen: ActiveScreen::Entry,
+            active_screen: ActiveScreen::Main,
             active_entry_screen: ActiveEntryScreen::Login,
             active_entry_input: ActiveEntryInput::Username,
             active_create_room_input: ActiveCreateRoomInput::Name,
@@ -184,6 +186,9 @@ impl App {
         for room in &mut self.room_channels {
             if room.users.contains(&user) && !room.users_online.contains(&user) {
                 if room.id == Uuid::from_str(PUBLIC_ROOM_ID).unwrap() {
+                    if user.username == self.username {
+                        continue;
+                    }
                     let dr = DirectChannel {
                         messages: VecDeque::new(),
                         user: user.clone(),
@@ -237,11 +242,12 @@ impl App {
     }
 
     fn handle_init_data(&mut self, data: UserInitData) {
-        for mut room in data.rooms {
-            room.users.retain(|u| u.username != self.username);
-
+        for room in data.rooms {
             if room.id == Uuid::from_str(PUBLIC_ROOM_ID).unwrap() {
                 for user in &room.users_online {
+                    if user.username == self.username {
+                        continue;
+                    }
                     let dir = DirectChannel {
                         messages: VecDeque::new(),
                         user: user.clone(),
@@ -324,6 +330,7 @@ impl App {
         self.direct_channels = vec![];
         self.room_channels = vec![];
         self.main_text_area = TextArea::default();
+        self.login_screen_notification = None;
 
         Ok(())
     }

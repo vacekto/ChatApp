@@ -29,6 +29,16 @@ impl App {
                         self.close_file_selector()?
                     }
 
+                    KeyCode::Char('r') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                        self.display_room_creator = true;
+                        self.display_file_selector = false;
+                    }
+
+                    KeyCode::Char('R') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                        self.display_room_creator = true;
+                        self.display_file_selector = false;
+                    }
+                    KeyCode::Tab => self.file_selector.switch_action()?,
                     KeyCode::Esc => self.close_file_selector()?,
                     KeyCode::Up => self.file_selector.move_up()?,
                     KeyCode::Down => self.file_selector.move_down()?,
@@ -66,12 +76,13 @@ impl App {
                 self.display_file_selector = false;
             }
             SelectorEntryKind::Folder => {
-                match selected.name == "../" {
-                    true => self.file_selector.close_current_folder()?,
-                    false => self.file_selector.open_folder()?,
-                };
+                if selected.name == "../" {
+                    self.file_selector.close_current_folder()?;
+                } else {
+                    self.file_selector.open_folder()?;
+                }
             }
-        }
+        };
 
         Ok(())
     }

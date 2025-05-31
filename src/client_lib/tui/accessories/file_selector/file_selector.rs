@@ -1,10 +1,18 @@
-use std::env;
+use std::{env, path::PathBuf};
 
 use crate::client_lib::util::{
-    config::FILES_FOR_TRANSFER,
-    types::{FileSelector, SelectorEntry, SelectorEntryKind},
+    config::{FILES_FOR_TRANSFER, FILES_IMG_TO_ASCII},
+    types::{FileAction, SelectorEntry, SelectorEntryKind},
 };
 use anyhow::Result;
+
+pub struct FileSelector {
+    pub current_location: PathBuf,
+    pub selected_index: usize,
+    pub entries: Vec<SelectorEntry>,
+    pub scroll_offset: u16,
+    pub active_action: FileAction,
+}
 
 impl FileSelector {
     pub fn new() -> Self {
@@ -18,11 +26,22 @@ impl FileSelector {
             selected_index: 0,
             entries: vec![back],
             scroll_offset: 0,
+            active_action: FileAction::File,
         };
 
         instance.update_entries().unwrap();
 
         instance
+    }
+
+    pub fn switch_action(&mut self) -> Result<()> {
+        self.active_action = match &self.active_action {
+            FileAction::ASCII => FileAction::File,
+            FileAction::File => FileAction::ASCII,
+        };
+
+        self.update_entries()?;
+        Ok(())
     }
 
     pub fn open_folder(&mut self) -> Result<()> {
@@ -76,16 +95,26 @@ impl FileSelector {
             kind: SelectorEntryKind::Folder,
             selected: false,
         };
+
         let mut entries: Vec<SelectorEntry> = vec![back];
         let dir = std::fs::read_dir(&self.current_location)?;
 
+        let allowed_files: Vec<_> = match self.active_action {
+            FileAction::ASCII => FILES_IMG_TO_ASCII.into(),
+            FileAction::File => FILES_FOR_TRANSFER.into(),
+        };
+
         for file in dir {
-            let file = file?;
-            let filename = file.file_name();
+            let file_entry = match file {
+                Err(_) => continue,
+                Ok(entry) => entry,
+            };
+            let filename = file_entry.file_name();
             let filename = filename.to_string_lossy();
             let suffix = filename.split(".").last().unwrap();
-            let is_dir = file.file_type()?.is_dir();
-            if !FILES_FOR_TRANSFER.contains(&suffix) && !is_dir {
+            let is_dir = file_entry.file_type()?.is_dir();
+
+            if !allowed_files.contains(&suffix) && !is_dir {
                 continue;
             };
 

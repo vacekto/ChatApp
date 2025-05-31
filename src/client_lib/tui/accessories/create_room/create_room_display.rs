@@ -6,10 +6,10 @@ use crate::client_lib::util::{
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Direction, Layout, Margin, Rect},
-    style::{Color, Modifier, Style, Stylize},
+    style::{Color, Style, Stylize},
     symbols::border,
     text::{Line, Span},
-    widgets::{Block, Paragraph, Widget, Wrap},
+    widgets::{Block, Clear, Paragraph, Widget, Wrap},
 };
 
 impl Widget for &mut RoomCreator {
@@ -23,6 +23,7 @@ impl Widget for &mut RoomCreator {
         let y = (area.height.saturating_sub(height)) / 2;
 
         let rect_outer = Rect::new(x, y, width, height);
+        Clear.render(rect_outer, buf);
 
         let style_outer_border =
             Style::default().fg(Color::Rgb(THEME_GREEN.0, THEME_GREEN.1, THEME_GREEN.2));
@@ -114,14 +115,12 @@ impl Widget for &mut RoomCreator {
         Block::bordered()
             .border_set(border::PLAIN)
             .title(span_name_title)
-            // .title_alignment(Alignment::Center)
             .border_style(style_input_border.clone())
             .render(rect_name, buf);
 
         Block::bordered()
             .border_set(border::PLAIN)
             .title(span_password_title)
-            // .title_alignment(Alignment::Center)
             .border_style(style_input_border.clone())
             .render(rect_password, buf);
 
@@ -139,11 +138,17 @@ impl Widget for &mut RoomCreator {
         let style_empty_cursor = Style::default();
         let style_active_cursor = Style::new()
             .fg(Color::Rgb(
+                THEME_GRAY_GREEN_DARK.0,
+                THEME_GRAY_GREEN_DARK.1,
+                THEME_GRAY_GREEN_DARK.2,
+            ))
+            .bg(Color::Rgb(
                 THEME_YELLOW_DARK.0,
                 THEME_YELLOW_DARK.1,
                 THEME_YELLOW_DARK.2,
-            ))
-            .add_modifier(Modifier::UNDERLINED);
+            ));
+
+        // .add_modifier(Modifier::UNDERLINED);
 
         match self.active_input {
             ActiveCreateRoomInput::Name => {

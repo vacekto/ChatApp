@@ -1,14 +1,14 @@
 use crate::client_lib::{
     tui::app::app::App,
     util::{
-        config::{THEME_GREEN, THEME_YELLOW_DARK, THEME_YELLOW_LIGHT},
+        config::{THEME_GRAY_GREEN_DARK, THEME_GREEN, THEME_YELLOW_DARK, THEME_YELLOW_LIGHT},
         types::{ActiveEntryInput, ActiveEntryScreen, Notification},
     },
 };
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Margin, Rect},
-    style::{Color, Modifier, Style, Stylize},
+    style::{Color, Style, Stylize},
     symbols::border,
     text::{Line, Span, Text},
     widgets::{Block, Paragraph, Widget, Wrap},
@@ -20,13 +20,23 @@ impl App {
         self.password_ta_register.set_mask_char('•');
         self.repeat_password_ta.set_mask_char('•');
 
-        let width_o = 70;
-        let height_o = 20;
+        let width = 70;
+        let height = 20;
 
-        let x_o = (area.width.saturating_sub(width_o)) / 2;
-        let y_o = (area.height.saturating_sub(height_o)) / 2;
+        let x = (area.width.saturating_sub(width)) / 2;
+        let y = (area.height.saturating_sub(height)) / 2;
 
-        let rect_main = Rect::new(x_o, y_o, width_o, height_o);
+        let rect_main = Rect::new(x, y, width, height);
+        let style_main_border = Style::new().fg(Color::Rgb(
+            THEME_YELLOW_LIGHT.0,
+            THEME_YELLOW_LIGHT.1,
+            THEME_YELLOW_LIGHT.2,
+        ));
+
+        Block::bordered()
+            .border_set(border::DOUBLE)
+            .border_style(style_main_border)
+            .render(rect_main, buf);
 
         let layout_headline = Layout::default()
             .direction(Direction::Vertical)
@@ -61,9 +71,14 @@ impl App {
         let wrapper_password_repeat = layout_password_repeat[0];
         let wrapper_notification = layout_notification[0];
 
+        // Block::bordered()
+        //     .border_set(border::DOUBLE)
+        //     .border_style(style_main_border)
+        //     .render(wrapper_headline, buf);
+
         let rect_headline = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Length(3), Constraint::Fill(0)])
+            .constraints(vec![Constraint::Length(20), Constraint::Fill(0)])
             .split(wrapper_headline)[0];
 
         let rect_username = Layout::default()
@@ -110,11 +125,15 @@ impl App {
         let style_empty_cursor = Style::default();
         let style_active_cursor = Style::new()
             .fg(Color::Rgb(
+                THEME_GRAY_GREEN_DARK.0,
+                THEME_GRAY_GREEN_DARK.1,
+                THEME_GRAY_GREEN_DARK.2,
+            ))
+            .bg(Color::Rgb(
                 THEME_YELLOW_DARK.0,
                 THEME_YELLOW_DARK.1,
                 THEME_YELLOW_DARK.2,
-            ))
-            .add_modifier(Modifier::UNDERLINED);
+            ));
 
         self.username_ta_login
             .set_cursor_line_style(Style::default());
