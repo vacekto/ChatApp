@@ -286,7 +286,7 @@ impl App {
     }
 
     fn handle_img_render(&mut self, img: ImgRender) -> Result<()> {
-        let messages = match img.from {
+        let messages = match img.to {
             Channel::Room(id) => self.get_room_messages(id),
             Channel::User(id) => self.get_direct_messages(id),
         };

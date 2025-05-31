@@ -363,6 +363,11 @@ impl<'a> ClientTask<'a> {
                     bincode::deserialize(&data).map_err(|err| BincodeErr(err, Bt::new()))?;
 
                 match message {
+                    ClientServerMsg::ASCII(img) => {
+                        let target = img.to.clone();
+                        let msg = ServerClientMsg::ASCII(img);
+                        self.send_data_to_channel(msg, target).await?;
+                    }
                     ClientServerMsg::Text(text_msg) => {
                         let target = text_msg.to.clone();
                         let msg = ServerClientMsg::Text(text_msg);
@@ -481,31 +486,6 @@ impl<'a> ClientTask<'a> {
                             },
                         };
 
-                        // let (tx_ack, rx_ack) = oneshot::channel::<broadcast::Sender<Bytes>>();
-
-                        // let transit = EstablishRoomCommTransit {
-                        //     room_id: persistence_res_data.room_id,
-                        //     room_users: persistence_res_data.room_users.clone(),
-                        //     ack: tx_ack,
-                        // };
-
-                        // // let msg = ClientManagerMsg::EstablishRoomComm(transit);
-
-                        // // if let Err(err) = self.client_manager_channel.tx.send(msg).await {
-                        // //     warn!("client_manager_channel.rx dropped, {} {}", err, Bt::new());
-                        // //     self.send_to_client(server_err_msg).await?;
-                        // //     return Ok(());
-                        // // };
-
-                        // // let tx = match rx_ack.await {
-                        // //     Err(err) => {
-                        // //         warn!("oneshot transmitter sent to manager dropped before sending cargo, {} {}", err, Bt::new());
-                        // //         self.send_to_client(server_err_msg).await?;
-                        // //         return Ok(());
-                        // //     }
-                        // //     Ok(tx) => tx,
-                        // // };
-
                         let (tx_ack, rx_ack) = oneshot::channel();
 
                         let transit = RoomUpdateTransit {
@@ -546,9 +526,6 @@ impl<'a> ClientTask<'a> {
                         let res = JoinRoomServerResponse::Success(room_data);
                         let msg = ServerClientMsg::JoinRoomResponse(res);
                         self.send_to_client(msg).await?;
-                        // self.send_data_to_channel(msg, target).await;
-
-                        // self.send_to_client(msg).await?;
                     }
                 };
             }

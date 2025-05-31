@@ -13,7 +13,7 @@ impl From<&TuiMsg> for Line<'static> {
         match msg {
             TuiMsg::JoinNotification(notification) => Line::from(notification),
             TuiMsg::TextMsg(msg) => Line::from(msg),
-            TuiMsg::Img(_mg) => todo!(),
+            TuiMsg::Img(_img) => todo!(),
         }
     }
 }

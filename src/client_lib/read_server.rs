@@ -57,6 +57,7 @@ pub fn listen_for_server() -> Result<()> {
             ServerClientMsg::JoinRoomResponse(res) => {
                 tx_tui_update.send(TuiUpdate::JoinRoom(res))?
             }
+            ServerClientMsg::ASCII(img) => tx_tui_update.send(TuiUpdate::Img(img))?,
         }
     }
 }

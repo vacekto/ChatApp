@@ -37,6 +37,7 @@ pub struct Chunk {
 #[derive(Deserialize, Serialize, Debug)]
 pub enum ClientServerMsg {
     Text(TextMsg),
+    ASCII(ImgRender),
     FileChunk(Chunk),
     FileMetadata(FileMetadata),
     Logout,
@@ -53,6 +54,7 @@ pub struct RoomUpdateTransit {
 #[derive(Deserialize, Serialize, Debug)]
 pub enum ServerClientMsg {
     Text(TextMsg),
+    ASCII(ImgRender),
     FileChunk(Chunk),
     FileMetadata(FileMetadata),
     UserJoinedRoom(JoinRoomNotification),

@@ -49,7 +49,8 @@ pub enum Notification {
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct ImgRender {
     pub cache: String,
-    pub from: Channel,
+    pub from: User,
+    pub to: Channel,
 }
 
 pub struct TuiTextMessage {

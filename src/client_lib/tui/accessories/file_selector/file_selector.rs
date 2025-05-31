@@ -109,7 +109,6 @@ impl FileSelector {
 
             if (file_metadata.is_dir() && !std::fs::read_dir(file.path()).is_ok())
                 || (file_metadata.is_file() && !std::fs::File::open(file.path()).is_ok())
-                || file_metadata.is_symlink()
             {
                 continue;
             }

@@ -1,15 +1,16 @@
 use crate::{
     client_lib::{
-        global_states::thread_logger::get_thread_runner,
+        global_states::{console_logger::console_log, thread_logger::get_thread_runner},
         tui::app::app::App,
         util::{
             config::TCP_CHUNK_BUFFER_SIZE,
-            types::{ChannelKind, SelectorEntryKind},
+            types::{ChannelKind, FileAction, ImgRender, SelectorEntryKind},
         },
     },
     shared_lib::types::{Channel, Chunk, ClientServerMsg, FileMetadata, User},
 };
 use anyhow::Result;
+use image::imageops::FilterType;
 use ratatui::crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
 use std::{io::Read, os::linux::fs::MetadataExt, path::PathBuf};
 use uuid::Uuid;
@@ -65,8 +66,8 @@ impl App {
     pub fn handle_file_selector_enter(&mut self) -> Result<()> {
         let selected = &self.file_selector.entries[self.file_selector.selected_index];
 
-        match selected.kind {
-            SelectorEntryKind::File => {
+        match (&selected.kind, &self.file_selector.active_action) {
+            (SelectorEntryKind::File, FileAction::File) => {
                 self.file_selector.current_location.push(&selected.name);
                 let path = self.file_selector.current_location.clone();
 
@@ -75,7 +76,49 @@ impl App {
                 self.file_selector.reset_location()?;
                 self.display_file_selector = false;
             }
-            SelectorEntryKind::Folder => {
+            (SelectorEntryKind::File, FileAction::ASCII) => {
+                let to = match (&self.active_channel.kind, &self.active_channel.id) {
+                    (_, None) => return Ok(()),
+                    (ChannelKind::Direct, Some(id)) => Channel::User(*id),
+                    (ChannelKind::Room, Some(id)) => Channel::Room(*id),
+                };
+
+                let from = User {
+                    username: self.username.clone(),
+                    id: self.id,
+                };
+
+                let th = get_thread_runner();
+                let path = format!(
+                    "{}/{}",
+                    self.file_selector
+                        .current_location
+                        .clone()
+                        .to_str()
+                        .unwrap(),
+                    selected.name
+                );
+                let tx_tui_tcp_msg = self.tx_tui_tcp_msg.clone();
+
+                th.spawn("image to ascii converter", false, move || {
+                    console_log(&format!("{path:?}"));
+                    let image = image::open(path).expect("Failed to open image");
+                    let resized = image.resize_exact(50, 70, FilterType::Nearest);
+                    let conf = artem::config::ConfigBuilder::new().color(false).build();
+                    let ascii = artem::convert(resized, &conf);
+                    let img_render = ImgRender {
+                        cache: ascii,
+                        from,
+                        to,
+                    };
+                    let msg = ClientServerMsg::ASCII(img_render);
+                    tx_tui_tcp_msg.send(msg).unwrap();
+
+                    Ok(())
+                });
+            }
+
+            (SelectorEntryKind::Folder, _) => {
                 if selected.name == "../" {
                     self.file_selector.close_current_folder()?;
                 } else {
