@@ -8,16 +8,16 @@ use super::types::{
 use crate::shared_lib::types::{
     AuthData, AuthResponse, ClientServerConnectMsg, RegisterData, RegisterResponse, ServerClientMsg,
 };
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
 
 use futures::{SinkExt, StreamExt};
+use mongodb::bson::{spec::BinarySubtype, Binary, Bson};
 use tokio::{
     net::tcp::{OwnedReadHalf, OwnedWriteHalf},
     sync::{mpsc, oneshot},
 };
 use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
-
-// returns file and line in which this function is called without the whole backtrace, for debugging purpuses
+use uuid::Uuid;
 
 pub async fn send_server_msg<'a>(
     msg: &ServerClientMsg,
@@ -92,48 +92,6 @@ pub async fn authenticate(
         .map_err(|err| anyhow!("{}{}", err, Bt::new()))?)
 }
 
-// pub async fn fetch_user_data(
-//     user: User,
-//     tx_client_persistence: &mpsc::Sender<ClientPersistenceMsg>,
-//     tx_client_manager: &mpsc::Sender<ClientManagerMsg>,
-// ) -> Result<(UserServerData, UserClientData), anyhow::Error> {
-//     let (tx_ack, rx_ack) = oneshot::channel();
-
-//     let transit = UserDataTransit { tx: tx_ack, user };
-
-//     let msg = ClientPersistenceMsg::GetUserData(transit);
-
-//     tx_client_persistence
-//         .send(msg)
-//         .await
-//         .map_err(|err| anyhow!("tx_client_persistence dropped: {err} {}", Bt::new()))?;
-
-//     let init_server_data = rx_ack.await.map_err(|err| {
-//         anyhow!(
-//             "oneshot transmitter for client init got dropped: {err} {}",
-//             Bt::new()
-//         )
-//     })?;
-
-//     let (tx_ack, rx_ack) = oneshot::channel();
-
-//     let transit = GetConnectedUsersTransit {
-//         tx_ack,
-//         rooms: init_server_data.rooms.clone(),
-//     };
-//     let msg = ClientManagerMsg::GetOnlineUsers(transit);
-
-//     tx_client_manager
-//         .send(msg)
-//         .await
-//         .map_err(|err| anyhow!("{err}{}", Bt::new()))?;
-
-//     let tui_rooms = rx_ack.await.map_err(|err| anyhow!("{err}{}", Bt::new()))?;
-//     let init_client_data = UserClientData { rooms: tui_rooms };
-
-//     Ok((init_server_data, init_client_data))
-// }
-
 pub async fn handle_register(
     data: RegisterData,
     tx_client_persistence: &mpsc::Sender<ClientPersistenceMsg>,
@@ -159,4 +117,23 @@ pub async fn handle_register(
         tx_client_manager.send(msg).await?;
     };
     Ok(res)
+}
+
+pub fn uuid_to_bson(uuid: Uuid) -> Bson {
+    Bson::Binary(Binary {
+        subtype: BinarySubtype::Uuid,
+        bytes: uuid.as_bytes().to_vec(),
+    })
+}
+
+pub fn bson_to_uuid(bson: &Bson) -> Option<Uuid> {
+    if let Bson::Binary(Binary {
+        subtype: BinarySubtype::Uuid,
+        bytes,
+    }) = bson
+    {
+        Uuid::from_slice(bytes).ok()
+    } else {
+        None
+    }
 }

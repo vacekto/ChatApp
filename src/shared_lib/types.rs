@@ -86,7 +86,7 @@ pub struct LeaveRoomNotification {
 pub struct TuiRoom {
     pub id: Uuid,
     pub name: String,
-    pub messages: VecDeque<TuiMsg>,
+    pub messages: VecDeque<ChannelMsg>,
     pub users: Vec<User>,
     pub users_online: Vec<User>,
 }
@@ -116,11 +116,11 @@ pub struct FileMetadata {
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct DirectChannel {
     pub user: User,
-    pub messages: VecDeque<TuiMsg>,
+    pub messages: VecDeque<ChannelMsg>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
-pub enum TuiMsg {
+pub enum ChannelMsg {
     TextMsg(TextMsg),
     JoinNotification(User),
     Img(ImgRender),
@@ -129,7 +129,7 @@ pub enum TuiMsg {
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct AuthData {
     pub username: String,
-    pub password: String,
+    pub pwd: String,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
@@ -151,5 +151,5 @@ pub enum ClientServerConnectMsg {
 #[derive(Deserialize, Serialize, Debug)]
 pub struct RegisterData {
     pub username: String,
-    pub password: String,
+    pub pwd: String,
 }

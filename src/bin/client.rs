@@ -1,4 +1,3 @@
-#![feature(error_generic_member_access)]
 use anyhow::Result;
 use chat_app::{
     client_lib::{

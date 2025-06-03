@@ -1,6 +1,6 @@
 use crate::{
     client_lib::util::types::{Contact, ImgRender},
-    shared_lib::types::{DirectChannel, TextMsg, TuiMsg, TuiRoom, User},
+    shared_lib::types::{ChannelMsg, DirectChannel, TextMsg, TuiRoom, User},
 };
 
 use ratatui::{
@@ -8,12 +8,12 @@ use ratatui::{
     text::{Line, Span, Text},
 };
 
-impl From<&TuiMsg> for Line<'static> {
-    fn from(msg: &TuiMsg) -> Self {
+impl From<&ChannelMsg> for Line<'static> {
+    fn from(msg: &ChannelMsg) -> Self {
         match msg {
-            TuiMsg::JoinNotification(notification) => Line::from(notification),
-            TuiMsg::TextMsg(msg) => Line::from(msg),
-            TuiMsg::Img(_img) => todo!(),
+            ChannelMsg::JoinNotification(notification) => Line::from(notification),
+            ChannelMsg::TextMsg(msg) => Line::from(msg),
+            ChannelMsg::Img(_img) => todo!(),
         }
     }
 }

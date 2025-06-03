@@ -1,5 +1,3 @@
-#![feature(error_generic_member_access)]
-
 use chat_app::{
     server_lib::{
         handle_connection::handle_connection,

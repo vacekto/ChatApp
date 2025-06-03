@@ -10,7 +10,7 @@ use crate::{
             types::{ChannelKind, Contact, Focus},
         },
     },
-    shared_lib::types::TuiMsg,
+    shared_lib::types::ChannelMsg,
 };
 use ratatui::{
     buffer::Buffer,
@@ -267,15 +267,15 @@ impl App {
                         Some(c) => {
                             for m in c.messages.iter() {
                                 match m {
-                                    TuiMsg::Img(img) => {
+                                    ChannelMsg::Img(img) => {
                                         for line in img.cache.lines() {
                                             messages.push(line.into());
                                         }
                                     }
-                                    TuiMsg::JoinNotification(n) => {
+                                    ChannelMsg::JoinNotification(n) => {
                                         messages.push(n.into());
                                     }
-                                    TuiMsg::TextMsg(msg) => {
+                                    ChannelMsg::TextMsg(msg) => {
                                         messages.push(msg.into());
                                     }
                                 }
@@ -288,15 +288,15 @@ impl App {
                     Some(c) => {
                         for m in c.messages.iter() {
                             match m {
-                                TuiMsg::Img(img) => {
+                                ChannelMsg::Img(img) => {
                                     for line in img.cache.lines() {
                                         messages.push(line.into());
                                     }
                                 }
-                                TuiMsg::JoinNotification(n) => {
+                                ChannelMsg::JoinNotification(n) => {
                                     messages.push(n.into());
                                 }
-                                TuiMsg::TextMsg(msg) => {
+                                ChannelMsg::TextMsg(msg) => {
                                     messages.push(msg.into());
                                 }
                             }

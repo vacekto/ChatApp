@@ -7,7 +7,7 @@ use crate::server_lib::util::types::server_error_types::Bt;
 use crate::shared_lib::config::PUBLIC_ROOM_ID;
 use crate::shared_lib::types::{JoinRoomNotification, RoomData, ServerClientMsg, User};
 use bytes::Bytes;
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::str::FromStr;
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -35,10 +35,13 @@ impl ManagerTask {
     }
 
     async fn run(&mut self) {
+        info!("Manager task running");
         loop {
             let msg = self.rx_client_manager.recv().await.expect(
                 "all tx_client_manager transmitters got dropped, one needs to live in server.rs to clone for new connections!!",
             );
+
+            // debug!("msg");
 
             match msg {
                 ClientManagerMsg::ClientConnected(client) => self.handle_client_connected(client),

@@ -1,10 +1,14 @@
-use super::util::types::server_data_types::{
-    AuthTransit, ClientPersistenceMsg, CreateRoomResponse, CreateRoomServerTransit, DbRoom, DbUser,
-    JoinRoomServerTransit, RegisterDataTransit, UserDataTransit, UserRoomData,
+use super::util::{
+    config::MONGO_ADDR,
+    types::server_data_types::{
+        AuthTransit, ClientPersistenceMsg, CreateRoomResponse, CreateRoomServerTransit, DbRoom,
+        DbUser, JoinRoomServerTransit, RegisterDataTransit, UserDataTransit, UserRoomData,
+    },
 };
 use crate::{
-    server_lib::util::types::{
-        server_data_types::JoinRoommPersistenceResponse, server_error_types::Bt,
+    server_lib::util::{
+        server_functions::{bson_to_uuid, uuid_to_bson},
+        types::{server_data_types::JoinRoommPersistenceResponse, server_error_types::Bt},
     },
     shared_lib::{
         config::{
@@ -14,72 +18,132 @@ use crate::{
         types::{AuthResponse, RegisterResponse, RoomData, User, UserInitData},
     },
 };
-use log::{debug, warn};
-use regex::Regex;
-use std::{
-    collections::{HashMap, VecDeque},
-    str::FromStr,
+use anyhow::{anyhow, Result};
+use argon2::{
+    password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
+    Argon2, PasswordHash, PasswordVerifier,
 };
+use futures::StreamExt;
+use log::error;
+use log::{debug, info, warn};
+use mongodb::{
+    bson::{doc, Document},
+    options::ClientOptions,
+    Client, Collection,
+};
+use regex::Regex;
+use std::str::FromStr;
 use tokio::{sync::mpsc, task};
 use uuid::Uuid;
 
 struct PersistenceTask {
     username_re: Regex,
-    password_re: Regex,
-    rooms: HashMap<Uuid, DbRoom>,
-    users: HashMap<String, DbUser>,
+    pwd_re: Regex,
     rx_client_persistence: mpsc::Receiver<ClientPersistenceMsg>,
+    users_collection: Collection<DbUser>,
+    rooms_collection: Collection<DbRoom>,
 }
 
 pub fn spawn_persistence_task(rx_client_persistence: mpsc::Receiver<ClientPersistenceMsg>) {
     task::spawn(async move {
-        let mut handler = PersistenceTask::new(rx_client_persistence);
+        let mut handler = match PersistenceTask::new(rx_client_persistence).await {
+            Ok(handler) => handler,
+            Err(err) => {
+                error!("Error while connecting to MongoDB: {}", err);
+                return;
+            }
+        };
         handler.run().await;
     });
 }
 
 impl PersistenceTask {
-    fn new(rx_client_persistence: mpsc::Receiver<ClientPersistenceMsg>) -> Self {
-        let mut rooms: HashMap<Uuid, DbRoom> = HashMap::new();
-        let users: HashMap<String, DbUser> = HashMap::new();
+    async fn new(rx_client_persistence: mpsc::Receiver<ClientPersistenceMsg>) -> Result<Self> {
+        let options = ClientOptions::parse(MONGO_ADDR).await?;
+
+        let client = Client::with_options(options)?;
+        let db = client.database("chatapp");
+
+        let users_collection = db.collection::<DbUser>("User");
+        let rooms_collection = db.collection::<DbRoom>("Room");
+
+        let bson_id = uuid_to_bson(Uuid::from_str(PUBLIC_ROOM_ID)?);
+
+        let filter = doc! { "id": bson_id };
+        let room = rooms_collection.find_one(filter).await?;
 
         let public_room = DbRoom {
-            id: Uuid::from_str(PUBLIC_ROOM_ID).unwrap(),
+            id: uuid_to_bson(Uuid::from_str(PUBLIC_ROOM_ID)?),
             name: PUBLIC_ROOM_NAME.into(),
-            messages: VecDeque::new(),
-            users: vec![],
-            password: None,
+            user_ids: vec![],
+            pwd: None,
         };
 
-        rooms.insert(public_room.id, public_room.clone());
-
-        Self {
-            password_re: Regex::new(PASSWORD_RE_PATTERN).unwrap(),
-            username_re: Regex::new(USERNAME_RE_PATTERN).unwrap(),
-            rooms,
-            users,
-            rx_client_persistence,
+        if room.is_none() {
+            rooms_collection.insert_one(public_room).await?;
         }
+
+        Ok(Self {
+            pwd_re: Regex::new(PASSWORD_RE_PATTERN)?,
+            username_re: Regex::new(USERNAME_RE_PATTERN)?,
+            rx_client_persistence,
+            rooms_collection,
+            users_collection,
+        })
     }
 
     async fn run(&mut self) {
+        info!("Persistence task running");
         loop {
             if let Some(msg) = self.rx_client_persistence.recv().await {
-                match msg {
-                    ClientPersistenceMsg::Authenticate(t) => self.handle_auth(t),
-                    ClientPersistenceMsg::Register(t) => self.handle_register(t),
-                    ClientPersistenceMsg::GetUserData(t) => self.get_user_data(t),
-                    ClientPersistenceMsg::UserJoinedRoom(t) => self.handle_user_joined_room(t),
-                    ClientPersistenceMsg::UserLeftRoom(t) => self.handle_user_left_room(t),
-                    ClientPersistenceMsg::CreateRoom(t) => self.handle_create_room(t),
-                    ClientPersistenceMsg::JoinRoom(t) => self.handle_join_room(t),
-                }
+                let users = self.users_collection.clone();
+                let rooms = self.rooms_collection.clone();
+                let pwd_re = self.pwd_re.clone();
+                let username_re = self.username_re.clone();
+
+                task::spawn(async move {
+                    let res = match msg {
+                        ClientPersistenceMsg::Authenticate(t) => {
+                            PersistenceTask::handle_auth(t, users).await
+                        }
+                        ClientPersistenceMsg::Register(t) => {
+                            PersistenceTask::handle_register(t, users, rooms, pwd_re, username_re)
+                                .await
+                        }
+                        ClientPersistenceMsg::GetUserData(t) => {
+                            PersistenceTask::get_user_data(t, users, rooms).await
+                        }
+                        ClientPersistenceMsg::UserJoinedRoom(t) => {
+                            PersistenceTask::handle_user_joined_room(t, users, rooms).await
+                        }
+                        ClientPersistenceMsg::UserLeftRoom(t) => {
+                            PersistenceTask::handle_user_left_room(t, users, rooms).await
+                        }
+                        ClientPersistenceMsg::CreateRoom(t) => {
+                            PersistenceTask::handle_create_room(t, users, rooms).await
+                        }
+                        ClientPersistenceMsg::JoinRoom(t) => {
+                            PersistenceTask::handle_join_room(t, users, rooms).await
+                        }
+                    };
+
+                    if let Err(err) = res {
+                        error!("Persistence task error: {err}");
+                    }
+                });
             }
         }
     }
 
-    fn handle_create_room(&mut self, t: CreateRoomServerTransit) {
-        if self.rooms.iter().any(|(_, r)| r.name == t.room_name) {
+    async fn handle_create_room(
+        t: CreateRoomServerTransit,
+        users_collection: Collection<DbUser>,
+        rooms_collection: Collection<DbRoom>,
+    ) -> Result<()> {
+        let filter = doc! { "name": t.room_name.clone() };
+        let room_res = rooms_collection.find_one(filter).await?;
+
+        if room_res.is_some() {
             let res = CreateRoomResponse::Failure(String::from(format!(
                 "Room name {} is already taken",
                 t.room_name
@@ -90,10 +154,11 @@ impl PersistenceTask {
                     Bt::new()
                 )
             }
-            return;
+            return Ok(());
         };
 
-        let db_user = match self.users.get_mut(&t.username) {
+        let filter = doc! { "username": &t.username.to_string() };
+        let db_user = match users_collection.find_one(filter).await? {
             None => {
                 warn!("Not registered user attepmted to create room");
                 let res = CreateRoomResponse::Failure(String::from(format!(
@@ -105,34 +170,35 @@ impl PersistenceTask {
                         Bt::new()
                     )
                 }
-                return;
+                return Ok(());
             }
             Some(u) => u,
         };
 
         let user = User {
-            id: db_user.id,
+            id: bson_to_uuid(&db_user.id).ok_or(anyhow!("expected uuid value"))?,
             username: t.username,
         };
 
         let new_db_room = DbRoom {
-            id: Uuid::new_v4(),
-            messages: VecDeque::new(),
+            id: uuid_to_bson(Uuid::new_v4()),
             name: t.room_name,
-            users: vec![user.clone()],
-            password: t.room_password,
+            user_ids: vec![db_user.id.clone()],
+            pwd: t.room_pwd,
         };
 
         let room_data = RoomData {
-            id: new_db_room.id,
+            id: bson_to_uuid(&new_db_room.id).ok_or(anyhow!("expected uuid value"))?,
             name: new_db_room.name.clone(),
             users: vec![user.clone()],
             users_online: vec![user.clone()],
         };
 
-        debug!("{:?}", new_db_room.password);
-        db_user.rooms.push(new_db_room.id);
-        self.rooms.insert(new_db_room.id, new_db_room);
+        let filter = doc! { "id": db_user.id };
+        let update = doc! { "$push": { "room_ids": new_db_room.id.clone() } };
+
+        rooms_collection.insert_one(new_db_room).await?;
+        users_collection.find_one_and_update(filter, update).await?;
 
         let res = CreateRoomResponse::Success(room_data);
         if let Err(err) = t.tx.send(res) {
@@ -141,10 +207,19 @@ impl PersistenceTask {
                 Bt::new()
             )
         }
+
+        Ok(())
     }
 
-    fn handle_join_room(&mut self, t: JoinRoomServerTransit) {
-        let room = match self.rooms.iter_mut().find(|(_, r)| r.name == t.room_name) {
+    async fn handle_join_room(
+        t: JoinRoomServerTransit,
+        users_collection: Collection<DbUser>,
+        rooms_collection: Collection<DbRoom>,
+    ) -> Result<()> {
+        let filter = doc! { "name": &t.room_name };
+        let res = rooms_collection.find_one(filter).await?;
+
+        let room = match res {
             None => {
                 let msg = format!(
                     "No room named {} is registered, but you can create one!",
@@ -152,68 +227,84 @@ impl PersistenceTask {
                 );
                 let res = JoinRoommPersistenceResponse::Failure(msg);
                 t.tx.send(res).ok();
-                return;
+                return Ok(());
             }
-            Some((_, r)) => r,
+            Some(r) => r,
         };
 
-        if room.users.iter().any(|u| u.id == t.user.id) {
+        if room.user_ids.iter().any(|bson_id| {
+            bson_to_uuid(bson_id)
+                // .ok_or(anyhow!("expected uuid value"))
+                .unwrap()
+                == t.user.id
+        }) {
             let msg = format!("User {} already is in the room.", t.user.username);
             let res = JoinRoommPersistenceResponse::Failure(msg);
             t.tx.send(res).ok();
-            return;
+            return Ok(());
         }
-        debug!("privided: {:?}", &t.room_password);
-        debug!("required: {:?}", &room.password);
 
-        match (&room.password, &t.room_password) {
-            (Some(correct_password), Some(provided_password)) => {
-                debug!("1");
-                if correct_password != provided_password {
-                    debug!("2");
+        match (&room.pwd, &t.room_pwd) {
+            (Some(correct_pwd), Some(provided_pwd)) => {
+                if correct_pwd != provided_pwd {
                     let msg = format!("Incorrect room password.");
                     let res = JoinRoommPersistenceResponse::Failure(msg);
                     t.tx.send(res).ok();
-                    return;
+                    return Ok(());
                 }
             }
             (Some(_), None) => {
-                debug!("3");
                 let msg = format!("Room password required.");
                 let res = JoinRoommPersistenceResponse::Failure(msg);
                 t.tx.send(res).ok();
-                return;
+                return Ok(());
             }
-            _ => {
-                debug!("4");
-            }
+            _ => {}
         }
 
-        let user = match self.users.get_mut(&t.user.username) {
-            None => {
-                let msg = format!("No user named {} is registered!", t.user.username);
-                let res = JoinRoommPersistenceResponse::Failure(msg);
-                t.tx.send(res).ok();
-                return;
-            }
-            Some(u) => u,
-        };
+        let mut users_cursor = users_collection
+            .find(doc! { "id": { "$in": room.user_ids } })
+            .await?;
 
-        user.rooms.push(room.id);
+        let mut users = vec![];
+
+        while let Some(user_res) = users_cursor.next().await {
+            let user = user_res?;
+
+            users.push(User {
+                id: bson_to_uuid(&user.id).ok_or(anyhow!("expected uuid value"))?,
+                username: user.username,
+            })
+        }
 
         let data = RoomData {
-            id: room.id,
+            id: bson_to_uuid(&room.id).ok_or(anyhow!("expected uuid value"))?,
             name: t.room_name,
-            users: room.users.clone(),
+            users,
             users_online: vec![],
         };
 
+        let filter = doc! { "username": &t.user.username };
+        let update = doc! { "$push": { "room_ids": room.id } };
+
+        users_collection.find_one_and_update(filter, update).await?;
+
+        // user.rooms.push(room.id);
+
         let res = JoinRoommPersistenceResponse::Success(data);
         t.tx.send(res).ok();
+
+        Ok(())
     }
 
-    fn handle_auth(&mut self, t: AuthTransit) {
-        let user = match self.users.get(&t.data.username) {
+    async fn handle_auth(t: AuthTransit, users_collection: Collection<DbUser>) -> Result<()> {
+        let err_msg = String::from("Internal server error");
+        let err_res = AuthResponse::Failure(err_msg);
+
+        let filter = doc! { "username": &t.data.username };
+        let user_res = users_collection.find_one(filter).await?;
+
+        let db_user = match user_res {
             Some(c) => c,
             None => {
                 let res = AuthResponse::Failure(format!(
@@ -226,16 +317,34 @@ impl PersistenceTask {
                         Bt::new()
                     )
                 }
-                return;
+                return Ok(());
             }
         };
-        let res = if t.data.password == user.password {
-            AuthResponse::Success(User {
+
+        let parsed_hash = match PasswordHash::new(&db_user.pwd) {
+            Ok(hash) => hash,
+            Err(err) => {
+                error!("error hashing password: {err}");
+                if let Err(err) = t.tx.send(err_res) {
+                    debug!("oneshot register res receiver dropped{err:?} {}", Bt::new());
+                };
+                return Ok(());
+            }
+        };
+
+        let argon2 = Argon2::default();
+        let res = match argon2.verify_password(t.data.pwd.as_bytes(), &parsed_hash) {
+            Err(argon2::password_hash::Error::Password) => {
+                AuthResponse::Failure(format!("Incorrect password"))
+            }
+            Err(err) => {
+                error!("error hashing password: {err}");
+                AuthResponse::Failure(format!("Internal server error"))
+            }
+            Ok(_) => AuthResponse::Success(User {
                 username: t.data.username,
-                id: user.id,
-            })
-        } else {
-            AuthResponse::Failure(format!("Incorrect password"))
+                id: bson_to_uuid(&db_user.id).ok_or(anyhow!("expected uuid value"))?,
+            }),
         };
 
         if let Err(err) = t.tx.send(res) {
@@ -244,105 +353,189 @@ impl PersistenceTask {
                 Bt::new()
             )
         }
+        Ok(())
     }
 
-    fn get_user_data(&mut self, t: UserDataTransit) {
-        let user = match self.users.get(&t.user.username) {
+    async fn get_user_data(
+        t: UserDataTransit,
+        users_collection: Collection<DbUser>,
+        rooms_collection: Collection<DbRoom>,
+    ) -> Result<()> {
+        let filter = doc! { "username": t.user.username };
+        let user_res = users_collection.find_one(filter).await?;
+
+        let user = match user_res {
             Some(user) => user,
-            None => {
-                debug!("no user with \"{}\"", &t.user.username);
-                return;
-            }
+            None => todo!("dodělat"),
         };
 
         let mut user_rooms = vec![];
 
-        for room_id in &user.rooms {
-            match self.rooms.get(room_id) {
-                Some(r) => {
-                    let room = RoomData {
-                        id: r.id,
-                        name: r.name.clone(),
-                        users: r.users.clone(),
-                        users_online: vec![],
-                    };
-                    user_rooms.push(room);
-                }
-                None => debug!("Room saved in DbUser does is not persisted!!{}", Bt::new()),
+        let filter = doc! { "id": { "$in": user.room_ids } };
+
+        let mut rooms_cursor = rooms_collection.find(filter).await?;
+
+        while let Some(room_res) = rooms_cursor.next().await {
+            let room = room_res?;
+            debug!("users room: {room:?}");
+
+            let mut users_cursor = users_collection
+                .find(doc! { "id": { "$in": room.user_ids } })
+                .await?;
+
+            let mut users = vec![];
+
+            while let Some(user_res) = users_cursor.next().await {
+                let user = user_res?;
+                users.push(User {
+                    id: bson_to_uuid(&user.id).unwrap(),
+                    username: user.username,
+                });
+            }
+
+            let room_data = RoomData {
+                id: bson_to_uuid(&room.id).ok_or(anyhow!("expected uuid value"))?,
+                name: room.name.clone(),
+                users,
+                users_online: vec![],
             };
+            user_rooms.push(room_data);
         }
 
+        debug!("rooms: {:?}", user_rooms);
         let data = UserInitData { rooms: user_rooms };
-
         if let Err(err) = t.tx.send(data) {
-            debug!("oneshot register res receiver dropped{err:?} {}", Bt::new());
+            debug!(
+                "oneshot receiver for get_user_data dropped {err:?} {}",
+                Bt::new()
+            );
         };
+        Ok(())
     }
 
-    fn handle_register(&mut self, t: RegisterDataTransit) {
-        if !self.username_re.is_match(&t.data.username) {
+    async fn handle_register(
+        t: RegisterDataTransit,
+        users_collection: Collection<DbUser>,
+        rooms_collection: Collection<DbRoom>,
+        pwd_re: Regex,
+        username_re: Regex,
+    ) -> Result<()> {
+        let err_msg = String::from("Internal server error, user not created");
+        let err_res = RegisterResponse::Failure(err_msg);
+
+        if !username_re.is_match(&t.data.username) {
             let err_msg = String::from(USERNAME_ERROR_MSG);
-            let res = RegisterResponse::Failure(err_msg);
-            if let Err(err) = t.tx.send(res) {
+            let err_res = RegisterResponse::Failure(err_msg);
+            if let Err(err) = t.tx.send(err_res) {
                 debug!("oneshot register res receiver dropped{err:?} {}", Bt::new());
             };
-            return;
+            return Ok(());
         };
 
-        if self.users.contains_key(t.data.username.as_str()) {
+        let filter = doc! { "username": &t.data.username };
+        let res = users_collection.find_one(filter).await?;
+
+        if res.is_some() {
             let res = RegisterResponse::Failure(String::from("Username already taken"));
             if let Err(err) = t.tx.send(res) {
                 debug!("oneshot register res receiver dropped{err:?} {}", Bt::new());
             };
-            return;
-        };
+            return Ok(());
+        }
 
-        if !self.password_re.is_match(&t.data.password)
-            || !&t.data.password.chars().any(|c| c.is_lowercase())
-            || !&t.data.password.chars().any(|c| c.is_uppercase())
-            || !&t.data.password.chars().any(|c| c.is_ascii_digit())
+        if !pwd_re.is_match(&t.data.pwd)
+            || !&t.data.pwd.chars().any(|c| c.is_lowercase())
+            || !&t.data.pwd.chars().any(|c| c.is_uppercase())
+            || !&t.data.pwd.chars().any(|c| c.is_ascii_digit())
         {
             let res = RegisterResponse::Failure(String::from(PASSWORD_ERROR_MSG));
             if let Err(err) = t.tx.send(res) {
                 debug!("oneshot register res receiver dropped{err:?} {}", Bt::new());
             };
-            return;
+            return Ok(());
         }
 
-        let public_room_id = Uuid::from_str(PUBLIC_ROOM_ID).unwrap();
+        let public_room_id = uuid_to_bson(Uuid::from_str(PUBLIC_ROOM_ID)?);
+
+        let salt = SaltString::generate(&mut OsRng);
+        let argon2 = Argon2::default();
+        let password_hash = match argon2.hash_password(t.data.pwd.as_bytes(), &salt) {
+            Ok(hash) => hash.to_string(),
+            Err(err) => {
+                error!("error hashing password: {err}");
+                if let Err(err) = t.tx.send(err_res) {
+                    debug!("oneshot register res receiver dropped{err:?} {}", Bt::new());
+                };
+                return Ok(());
+            }
+        };
 
         let new_db_user = DbUser {
-            id: Uuid::new_v4(),
-            password: t.data.password,
+            id: uuid_to_bson(Uuid::new_v4()),
+            pwd: password_hash,
             username: t.data.username,
-            rooms: vec![public_room_id],
+            room_ids: vec![public_room_id.clone()],
         };
 
         let new_user = User {
-            id: new_db_user.id,
+            id: bson_to_uuid(&new_db_user.id).ok_or(anyhow!("expected uuid value"))?,
             username: new_db_user.username.clone(),
         };
 
-        let public_room = self.rooms.get_mut(&public_room_id).unwrap();
+        let filter = doc! { "id": public_room_id };
+        let update: Document = doc! { "$push": { "user_ids": new_db_user.id.clone() } };
 
-        public_room.users.push(new_user.clone());
+        rooms_collection.update_one(filter, update).await?;
 
         let res = RegisterResponse::Success(new_user);
-        self.users.insert(new_db_user.username.clone(), new_db_user);
+        users_collection.insert_one(new_db_user).await?;
 
         if let Err(err) = t.tx.send(res) {
             debug!("oneshot register res receiver dropped{err:?} {}", Bt::new());
         };
+
+        Ok(())
     }
 
-    fn handle_user_joined_room(&mut self, t: UserRoomData) {
-        if let Some(room) = self.rooms.get_mut(&t.room_id) {
-            room.users.push(t.user);
-        }
+    async fn handle_user_joined_room(
+        t: UserRoomData,
+        users_collection: Collection<DbUser>,
+        rooms_collection: Collection<DbRoom>,
+    ) -> Result<()> {
+        let user_bson_id = uuid_to_bson(t.user.id);
+        let room_bson_id = uuid_to_bson(t.room_id);
+
+        let filter = doc! { "id": room_bson_id.clone() };
+        let update = doc! { "$push": { "user_ids": user_bson_id.clone() } };
+
+        rooms_collection.find_one_and_update(filter, update).await?;
+
+        let filter = doc! { "id": user_bson_id };
+        let update = doc! { "$push": { "room_ids": room_bson_id } };
+
+        users_collection.find_one_and_update(filter, update).await?;
+
+        Ok(())
     }
-    fn handle_user_left_room(&mut self, t: UserRoomData) {
-        if let Some(room) = self.rooms.get_mut(&t.room_id) {
-            room.users.retain(|u| u.id != t.user.id);
-        }
+
+    async fn handle_user_left_room(
+        t: UserRoomData,
+        users_collection: Collection<DbUser>,
+        rooms_collection: Collection<DbRoom>,
+    ) -> Result<()> {
+        let user_bson_id = uuid_to_bson(t.user.id);
+        let room_bson_id = uuid_to_bson(t.room_id);
+
+        let filter = doc! { "id": room_bson_id.clone() };
+        let update = doc! { "$pull": { "user_ids": user_bson_id.clone() } };
+
+        rooms_collection.find_one_and_update(filter, update).await?;
+
+        let filter = doc! { "id": user_bson_id };
+        let update = doc! { "$pull": { "room_ids": room_bson_id } };
+
+        users_collection.find_one_and_update(filter, update).await?;
+
+        Ok(())
     }
 }

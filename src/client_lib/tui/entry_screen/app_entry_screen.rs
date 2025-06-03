@@ -108,7 +108,10 @@ impl App {
         };
 
         let mut state = get_global_state();
-        let data = AuthData { username, password };
+        let data = AuthData {
+            username,
+            pwd: password,
+        };
 
         let msg = ClientServerConnectMsg::Login(data);
         let serialized = bincode::serialize(&msg)?;
@@ -130,7 +133,10 @@ impl App {
 
         let mut state = get_global_state();
 
-        let data = RegisterData { username, password };
+        let data = RegisterData {
+            username,
+            pwd: password,
+        };
         let msg = ClientServerConnectMsg::Register(data);
         let serialized = bincode::serialize(&msg)?;
         let framed = frame_data(&serialized);

@@ -17,7 +17,7 @@ use crate::{
         config::PUBLIC_ROOM_ID,
         types::{
             Channel, Chunk, ClientServerMsg, DirectChannel, JoinRoomNotification,
-            LeaveRoomNotification, RegisterResponse, Response, RoomData, TextMsg, TuiMsg, TuiRoom,
+            LeaveRoomNotification, RegisterResponse, Response, RoomData, TextMsg, ChannelMsg, TuiRoom,
             User, UserInitData,
         },
     },
@@ -293,7 +293,7 @@ impl App {
 
         match messages {
             None => bail!("no messages found fo {:?}", img),
-            Some(m) => m.push_front(TuiMsg::Img(img)),
+            Some(m) => m.push_front(ChannelMsg::Img(img)),
         }
 
         Ok(())
@@ -375,7 +375,7 @@ impl App {
         let msg = TextMsg { text, from, to };
 
         if let Some(messages) = self.get_direct_messages(id) {
-            messages.push_front(TuiMsg::TextMsg(msg.clone()));
+            messages.push_front(ChannelMsg::TextMsg(msg.clone()));
         };
 
         let msg = ClientServerMsg::Text(msg);

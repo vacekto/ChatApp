@@ -14,7 +14,7 @@ use std::{
 
 pub fn listen_for_server() -> Result<()> {
     let state = get_global_state();
-    let mut tcp = state.tcp.try_clone().unwrap();
+    let mut tcp = state.tcp.try_clone()?;
     let tx_tui_update = state.tui_update_channel.tx.clone();
     let tx_tcp_stream = state.tcp_stream_channel.tx.clone();
 

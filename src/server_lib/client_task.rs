@@ -395,7 +395,7 @@ impl<'a> ClientTask<'a> {
                         let transit = CreateRoomServerTransit {
                             tx: tx_ack,
                             room_name: t.room_name,
-                            room_password: t.room_password,
+                            room_pwd: t.room_password,
                             username: self.username.clone(),
                         };
 
@@ -444,7 +444,7 @@ impl<'a> ClientTask<'a> {
                         let transit = JoinRoomServerTransit {
                             tx: tx_ack,
                             room_name: t.room_name,
-                            room_password: t.room_password,
+                            room_pwd: t.room_password,
                             user: User {
                                 id: self.id,
                                 username: self.username.clone(),

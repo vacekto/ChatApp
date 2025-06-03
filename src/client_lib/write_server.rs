@@ -9,7 +9,7 @@ use super::global_states::app_state::get_global_state;
 
 pub fn write_to_server() -> Result<()> {
     let state = get_global_state();
-    let mut tcp = state.tcp.try_clone().unwrap();
+    let mut tcp = state.tcp.try_clone()?;
     let rx_file = state.tui_tcp_file_channel.rx.clone();
     let rx_msg = state.tui_tcp_msg_channel.rx.clone();
 

@@ -6,7 +6,7 @@ use crate::{
             types::{ActiveScreen, ChannelKind, Focus, Notification},
         },
     },
-    shared_lib::types::{AuthResponse, Channel, TextMsg, TuiMsg},
+    shared_lib::types::{AuthResponse, Channel, ChannelMsg, TextMsg},
 };
 use anyhow::Result;
 use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -38,17 +38,17 @@ impl App {
         match msg.to {
             Channel::Room(id) => {
                 if let Some(messages) = self.get_room_messages(id) {
-                    messages.push_front(TuiMsg::TextMsg(msg))
+                    messages.push_front(ChannelMsg::TextMsg(msg))
                 };
             }
             Channel::User(_) => {
                 if let Some(messages) = self.get_direct_messages(msg.from.id) {
-                    messages.push_front(TuiMsg::TextMsg(msg));
+                    messages.push_front(ChannelMsg::TextMsg(msg));
                 }
             }
         }
     }
-    pub fn get_direct_messages(&mut self, id: Uuid) -> Option<&mut VecDeque<TuiMsg>> {
+    pub fn get_direct_messages(&mut self, id: Uuid) -> Option<&mut VecDeque<ChannelMsg>> {
         let res = self.direct_channels.iter_mut().find(|c| c.user.id == id);
         match res {
             Some(c) => Some(&mut c.messages),
@@ -56,7 +56,7 @@ impl App {
         }
     }
 
-    pub fn get_room_messages(&mut self, id: Uuid) -> Option<&mut VecDeque<TuiMsg>> {
+    pub fn get_room_messages(&mut self, id: Uuid) -> Option<&mut VecDeque<ChannelMsg>> {
         let res = self.room_channels.iter_mut().find(|c| c.id == id);
         match res {
             Some(c) => Some(&mut c.messages),
