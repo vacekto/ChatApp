@@ -1,9 +1,6 @@
-use super::util::{
-    config::MONGO_ADDR,
-    types::server_data_types::{
-        AuthTransit, ClientPersistenceMsg, CreateRoomResponse, CreateRoomServerTransit, DbRoom,
-        DbUser, JoinRoomServerTransit, RegisterDataTransit, UserDataTransit, UserRoomData,
-    },
+use super::util::types::server_data_types::{
+    AuthTransit, ClientPersistenceMsg, CreateRoomResponse, CreateRoomServerTransit, DbRoom, DbUser,
+    JoinRoomServerTransit, RegisterDataTransit, UserDataTransit, UserRoomData,
 };
 use crate::{
     server_lib::util::{
@@ -59,7 +56,9 @@ pub fn spawn_persistence_task(rx_client_persistence: mpsc::Receiver<ClientPersis
 
 impl PersistenceTask {
     async fn new(rx_client_persistence: mpsc::Receiver<ClientPersistenceMsg>) -> Result<Self> {
-        let options = ClientOptions::parse(MONGO_ADDR).await?;
+        let mongo_addr = std::env::var("DB_URL").unwrap();
+
+        let options = ClientOptions::parse(mongo_addr).await?;
 
         let client = Client::with_options(options)?;
         let db = client.database("chatapp");
@@ -366,7 +365,7 @@ impl PersistenceTask {
 
         let user = match user_res {
             Some(user) => user,
-            None => todo!("dodělat"),
+            None => return Ok(()),
         };
 
         let mut user_rooms = vec![];
@@ -377,7 +376,6 @@ impl PersistenceTask {
 
         while let Some(room_res) = rooms_cursor.next().await {
             let room = room_res?;
-            debug!("users room: {room:?}");
 
             let mut users_cursor = users_collection
                 .find(doc! { "id": { "$in": room.user_ids } })
@@ -402,7 +400,6 @@ impl PersistenceTask {
             user_rooms.push(room_data);
         }
 
-        debug!("rooms: {:?}", user_rooms);
         let data = UserInitData { rooms: user_rooms };
         if let Err(err) = t.tx.send(data) {
             debug!(

@@ -1,0 +1,8 @@
+dockerfile
+docker-compose.yaml
+files
+.vscode
+.VSCodeCounter
+terget
+.gitignore
+.dockerignore

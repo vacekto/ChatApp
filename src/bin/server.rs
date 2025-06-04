@@ -1,33 +1,35 @@
-use chat_app::{
-    server_lib::{
-        handle_connection::handle_connection,
-        manager_task::spawn_manager_task,
-        persistence_task::spawn_persistence_task,
-        util::{
-            config::{CLIENT_MANAGER_CAPACITY, CLIENT_PERSISTENCE_CAPACITY},
-            types::{
-                server_data_types::{ClientManagerMsg, ClientPersistenceMsg},
-                server_error_types::Bt,
-            },
+use chat_app::server_lib::{
+    handle_connection::handle_connection,
+    manager_task::spawn_manager_task,
+    persistence_task::spawn_persistence_task,
+    util::{
+        config::{CLIENT_MANAGER_CAPACITY, CLIENT_PERSISTENCE_CAPACITY},
+        types::{
+            server_data_types::{ClientManagerMsg, ClientPersistenceMsg},
+            server_error_types::Bt,
         },
     },
-    shared_lib::config::SERVER_ADDR,
 };
+use dotenv::dotenv;
 use log::{error, info};
 use std::error::Error;
 use tokio::{net::TcpListener, sync::mpsc, task};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    dotenv().ok();
+
+    let server_addr = format!("0.0.0.0:{}", std::env::var("SERVER_PORT")?);
+
     env_logger::Builder::from_default_env()
-        .filter_level(log::LevelFilter::Debug)
+        .filter_level(log::LevelFilter::Info)
         .init();
 
-    let listener = TcpListener::bind(SERVER_ADDR)
+    let listener = TcpListener::bind(&server_addr)
         .await
         .expect("Tcp listerner failed");
 
-    info!("listening on: {}", SERVER_ADDR);
+    info!("listening on: {}", server_addr);
 
     let (tx_client_manager, rx_client_manager) =
         mpsc::channel::<ClientManagerMsg>(CLIENT_MANAGER_CAPACITY);

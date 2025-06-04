@@ -1,0 +1,22 @@
+services:
+  chatapp:
+    restart: always
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    container_name: "chat_app"
+    ports:
+      - ${SERVER_PORT}:11111
+
+    environment:
+      SERVER_PORT: "${SERVER_PORT}"
+      DB_URL: "mongodb://mongo:27017/chatapp"
+
+  mongo:
+    image: mongo
+    container_name: "chat_app_mongo"
+    restart: always
+    ports:
+      - ${DB_PORT}:27017
+    logging:
+      driver: none
