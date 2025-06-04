@@ -40,6 +40,8 @@ impl FileSelector {
             FileAction::File => FileAction::ASCII,
         };
 
+        self.selected_index = 0;
+
         self.update_entries()?;
         Ok(())
     }

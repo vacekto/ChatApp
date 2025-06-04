@@ -1,0 +1,18 @@
+FROM rust:1.87-alpine AS builder
+
+RUN apk add --no-cache musl-dev build-base
+
+WORKDIR /app
+COPY . .
+
+RUN rustup target add x86_64-unknown-linux-musl
+RUN cargo build --release --target x86_64-unknown-linux-musl --bin server 
+RUN strip /app/target/x86_64-unknown-linux-musl/release/server
+
+FROM alpine AS runtime
+
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/server /usr/local/bin/server
+
+CMD ["server"]
+
+

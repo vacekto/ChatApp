@@ -14,7 +14,7 @@ use crate::{
 };
 use ratatui::{
     buffer::Buffer,
-    layout::{Alignment, Constraint, Direction, Layout, Margin, Rect},
+    layout::{Constraint, Direction, Layout, Margin, Rect},
     style::{Color, Style, Stylize},
     symbols::border,
     text::{Line, Span},
@@ -46,10 +46,32 @@ impl App {
         let area_contacts = layout_content[0];
         let area_messages_and_intput = layout_content[1];
 
-        let span_option_tab = Span::from("switch focus: Tab ");
-        Line::from(vec![span_option_tab])
-            .alignment(Alignment::Left)
-            .render(area_bottom_bar.inner(Margin::new(1, 1)), buf);
+        let span_switch = Span::from("switch focus: ").style(Style::new().fg(Color::DarkGray));
+        let span_switch_s = Span::from("< Tab >    ").style(Style::new().fg(Color::White));
+        let span_navigate = Span::from(" navigate: ").style(Style::new().fg(Color::DarkGray));
+        let span_navigate_s = Span::from("< ←,→,↑,↓ >    ").style(Style::new().fg(Color::White));
+        let span_file = Span::from(" send file: ").style(Style::new().fg(Color::DarkGray));
+        let span_file_s = Span::from("< Ctrl + (f,F) >    ").style(Style::new().fg(Color::White));
+        let span_room = Span::from(" create room: ").style(Style::new().fg(Color::DarkGray));
+        let span_room_s = Span::from("< Ctrl + (r,R) >    ").style(Style::new().fg(Color::White));
+        let span_logout = Span::from(" logout: ").style(Style::new().fg(Color::DarkGray));
+        let span_logout_s = Span::from("< Esc >").style(Style::new().fg(Color::White));
+
+        let options_line = Line::from(vec![
+            span_switch,
+            span_switch_s,
+            span_navigate,
+            span_navigate_s,
+            span_file,
+            span_file_s,
+            span_room,
+            span_room_s,
+            span_logout,
+            span_logout_s,
+        ])
+        .centered();
+
+        options_line.render(area_bottom_bar.inner(Margin::new(1, 1)), buf);
 
         Block::default()
             .style(Style::default().bg(Color::Rgb(

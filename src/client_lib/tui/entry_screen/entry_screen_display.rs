@@ -250,19 +250,23 @@ impl App {
             height: 1,
         };
         let span_switch = Span::from("switch: ").style(Style::new().fg(Color::DarkGray));
-        let span_tab = Span::from("< Tab >    ").style(Style::new().fg(Color::White));
+        let span_switch_s = Span::from("< Tab >    ").style(Style::new().fg(Color::White));
         let span_select = Span::from(" select: ").style(Style::new().fg(Color::DarkGray));
-        let span_arrows = Span::from("< ↑,↓ >    ").style(Style::new().fg(Color::White));
+        let span_select_s = Span::from("< ↑,↓ >    ").style(Style::new().fg(Color::White));
         let span_submit = Span::from(" submit: ").style(Style::new().fg(Color::DarkGray));
-        let span_enter = Span::from("< Enter >").style(Style::new().fg(Color::White));
+        let span_submit_s = Span::from("< Enter >    ").style(Style::new().fg(Color::White));
+        let span_logout = Span::from(" logout: ").style(Style::new().fg(Color::DarkGray));
+        let span_logout_s = Span::from("< Esc >").style(Style::new().fg(Color::White));
 
         let options_line = Line::from(vec![
             span_switch,
-            span_tab,
+            span_switch_s,
             span_select,
-            span_arrows,
+            span_select_s,
             span_submit,
-            span_enter,
+            span_submit_s,
+            span_logout,
+            span_logout_s,
         ])
         .centered();
 
