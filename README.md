@@ -7,10 +7,13 @@ Purpuse of the project was to get more familiar with standard Rust ecosystem and
 
 ## How to start
 with docker:
+
 - set SERVER_PORT env variable (is enough to create .env and declare variable there)
 - docker compose up  (start server)
-- cargo run --bin client --release 
+- cargo run --bin client --release
+
 without docker: 
+
 - default server port is 11111 in case of absent SERVER_PORT env var. Set SERVER_PORT or change in clienr.rs and server.rs
 - cargo run --bin server --release
 - cargo run --bin client --release
