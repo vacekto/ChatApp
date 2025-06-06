@@ -31,7 +31,7 @@ Manager_task is responsible for establishing channel communication between separ
 already online users. If there are any, manager_tasks sends request for the room transmitter to one of those clients along with oneshot channel for tranferring the wanted room transmitter. If no user is online, new trasnimmter gets created and sent back using the very same oneshot channel.
 Direct channels between clients gets established dynamically in similar manner. This solves necesity to send every client_task every message only for them to further check whether the message is actually meant for corresponding user. This way, raw serialized bytes can be transmitted through channels directly to targeted TCP connection once the communication_tasks get created.
 
-### Persistence
+### Persistence_task
 Listens for events from clients for DB fetching and responds with oneshot transmitter from the client_task. Db used is MongoDB with official Rust MongoDB driver. ORM would be more comfortable for larger projects in my opinion.
 
 ## Client
