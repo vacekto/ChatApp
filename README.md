@@ -39,3 +39,7 @@ Listens for events from clients for DB fetching and responds with oneshot transm
 
 ## Client
 Client is able to send text messages, converted images to ASCII art and tranfer files. Files are beeing saved to "files" folder in the app folder.
+
+## TODO
+- TLS support. TLS for server is straightforward to add, client however is more troublesome. TCP stream instance is split to write and read halfs, which cannot be done for blocking encrypted TCP connection. Either small client rewrite is needed (at which point clint would need to periodically check for any received messages so it could write to server in the meantime, which is not perfect solution in case of streaming files), complete Client rewrite to Tokio, since async version is capable of splitting TCP stream for some reason, or implementing custom split for the enncrypted TCP instance.
+- peer to peer communication, where each client is also a server and communicates with other clients through DNS lookup without central cerver.
