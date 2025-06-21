@@ -20,6 +20,7 @@ without docker:
 
 Docker pulls Mongo image to connect to, but remote database connection is setup in case of running locally. To change set DB_URL env variable.
 
+## Architecture
 
 ## Server
 Server immediately spawns two asynchornous tasks called "manager_task" and "persistence_task" with separate responsibilities. Once TCP connection is established and user logs in, "client_task" struct gets initialized and started. This holds ownership of the only TCP connection instance for client and messages are being framed to eliminate 
@@ -37,7 +38,7 @@ Direct channels between clients gets established dynamically in similar manner. 
 ### Persistence_task
 Listens for events from clients for DB fetching and responds with oneshot transmitter from the client_task. Db used is MongoDB with official Rust MongoDB driver. ORM would be more comfortable for larger projects in my opinion.
 
-## Client
+### Client
 Client is able to send text messages, converted images to ASCII art and tranfer files. Files are beeing saved to "files" folder in the app folder.
 
 ## TODO
