@@ -22,23 +22,23 @@ Docker pulls Mongo image to connect to, but remote database connection is setup 
 
 ## Architecture
 
-- ### Server
+### Server
 Server immediately spawns two asynchornous tasks called "manager_task" and "persistence_task" with separate responsibilities. Once TCP connection is established and user logs in, "client_task" struct gets initialized and started. This holds ownership of the only TCP connection instance for client and messages are being framed to eliminate 
 message data interleaving. Manager_task holds bidirectional communication with every client_task via Rust channels and keeps list of currently connected clients in a hashmap, whereas persistence_task is responsible for fetching DB data. 
 
-- ### Client_task
+- #### Client_task
 Struct representing connected user, basically backbone of server logic along with manger_task. Fethes persisted user data during initialization and holds channel transmitters in memory for every room the client is in and every other client currently in communication with.
 Listening for each room is blocking operation, so new tokio task called "communication_task" is created dynamically for each room upon "room join" or "init" events where. From this communication_task the channel receiver delegates data to the listening client_task and data get furher sent to user through TCP stream instance.
 
-- ### Manager_task
+- #### Manager_task
 Manager_task is responsible for establishing channel communication between separate client_tasks, forming simple implementation of so called "Pub/Sub" system. Upon initialization of client_task, manager task checks for every room the user is present in for any other 
 already online users. If there are any, manager_tasks sends request for the room transmitter to one of those clients along with oneshot channel for tranferring the wanted room transmitter. If no user is online, new trasnimmter gets created and sent back using the very same oneshot channel.
 Direct channels between clients gets established dynamically in similar manner. This solves necesity to send every client_task every message only for them to further check whether the message is actually meant for corresponding user. This way, raw serialized bytes can be transmitted through channels directly to targeted TCP connection once the communication_tasks get created.
 
-- ### Persistence_task
+- #### Persistence_task
 Listens for events from clients for DB fetching and responds with oneshot transmitter from the client_task. Db used is MongoDB with official Rust MongoDB driver. ORM would be more comfortable for larger projects in my opinion.
 
-- ### Client
+### Client
 Client is able to send text messages, converted images to ASCII art and tranfer files. Files are beeing saved to "files" folder in the app folder.
 
 ## TODO
