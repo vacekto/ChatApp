@@ -2,6 +2,7 @@ use bytes::Bytes;
 use mongodb::bson::Bson;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc, oneshot};
+use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 use uuid::Uuid;
 
 use crate::shared_lib::types::{
@@ -162,3 +163,13 @@ pub struct DbUser {
     pub pwd: String,
     pub room_ids: Vec<Bson>,
 }
+
+pub type TlsRead = FramedRead<
+    tokio::io::ReadHalf<tokio_rustls::server::TlsStream<tokio::net::TcpStream>>,
+    LengthDelimitedCodec,
+>;
+
+pub type TlsWrite = FramedWrite<
+    tokio::io::WriteHalf<tokio_rustls::server::TlsStream<tokio::net::TcpStream>>,
+    LengthDelimitedCodec,
+>;

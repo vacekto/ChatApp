@@ -1,19 +1,27 @@
 use anyhow::Result;
-use chat_app::client_lib::{
-    data_stream::handle_file_streaming,
-    global_states::{
-        app_state::init_global_state,
-        // console_logger::initialize_console_logger,
-        thread_logger::get_thread_runner,
+use chat_app::{
+    client_lib::{
+        data_stream::handle_file_streaming,
+        // global_states::{app_state::init_global_state, thread_logger::get_thread_runner},
+        read_server::listen_for_server,
+        tui::tui,
+        write_to_server::write_to_server,
     },
-    read_server::listen_for_server,
-    tui::tui,
-    write_server::write_to_server,
+    shared_lib::types::{Chunk, ClientServerConnectMsg, ClientServerMsg},
 };
-use std::{net::TcpStream, thread, time::Duration};
+use rustls::{
+    pki_types::{CertificateDer, ServerName},
+    ClientConfig,
+};
+use std::{sync::Arc, thread, time::Duration};
+use tokio::net::TcpStream;
+use tokio_rustls::TlsConnector;
 
-fn main() -> Result<()> {
-    // initialize_console_logger();
+#[tokio::main]
+async fn main() -> Result<()> {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
 
     let server_addr = match std::env::var("SERVER_PORT") {
         Ok(port) => format!("localhost:{port}"),
@@ -22,29 +30,60 @@ fn main() -> Result<()> {
 
     let tcp = loop {
         println!("attempting to establish connection../");
-        match TcpStream::connect(&server_addr) {
+        match TcpStream::connect(&server_addr).await {
             Ok(s) => {
                 println!("connection established with: :{}", server_addr);
                 break s;
             }
             Err(err) => {
                 println!("connection error: {}", err);
-                thread::sleep(Duration::from_secs(1));
+                thread::sleep(Duration::from_secs(3));
             }
         }
     };
 
-    init_global_state(tcp);
+    let cert = std::fs::read(std::path::Path::new("cert.der"))?;
+    let cert = CertificateDer::from(cert);
 
-    let th_runner = get_thread_runner();
+    let mut root_store = rustls::RootCertStore::empty();
+    root_store.add(cert)?;
 
-    th_runner.spawn("read server", true, || listen_for_server());
-    th_runner.spawn("write server", true, || write_to_server());
-    th_runner.spawn("file stream", true, || handle_file_streaming());
-    tui()?;
+    let config = ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
 
-    // th_runner.spawn("ratatui", true, || tui());
-    // let th_logger = get_thread_logger();
-    // th_logger.log_results();
+    let connector = TlsConnector::from(Arc::new(config));
+    let domain = ServerName::try_from("localhost")?;
+    let tls_stream = connector.connect(domain, tcp).await?;
+
+    let (reader, writer) = tokio::io::split(tls_stream);
+
+    let (tx_tcp_tui, rx_tcp_tui) = tokio::sync::mpsc::channel(20);
+    let (tx_tcp_stream, rx_tcp_stream) = tokio::sync::mpsc::channel(20);
+    let (tx_tui_tcp_file, rx_tui_tcp_file) = tokio::sync::mpsc::channel::<Chunk>(1000);
+    let (tx_tui_tcp_msg, rx_tui_tcp_msg) = tokio::sync::mpsc::channel::<ClientServerMsg>(20);
+    let (tx_tui_tcp_auth, rx_tui_tcp_auth) =
+        tokio::sync::mpsc::channel::<ClientServerConnectMsg>(20);
+
+    tokio::spawn(async move {
+        handle_file_streaming(rx_tcp_stream).await.ok();
+    });
+
+    tokio::spawn(async move {
+        listen_for_server(reader, tx_tcp_tui, tx_tcp_stream)
+            .await
+            .ok();
+    });
+
+    tokio::spawn(async move {
+        write_to_server(writer, rx_tui_tcp_msg, rx_tui_tcp_file, rx_tui_tcp_auth)
+            .await
+            .unwrap();
+    });
+
+    tui(rx_tcp_tui, tx_tui_tcp_file, tx_tui_tcp_msg, tx_tui_tcp_auth)
+        .await
+        .ok();
+
     Ok(())
 }

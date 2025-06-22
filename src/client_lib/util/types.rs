@@ -3,7 +3,6 @@ use crate::shared_lib::types::{
     LeaveRoomNotification, RegisterResponse, Response, RoomData, TextMsg, TuiRoom, User,
     UserInitData,
 };
-use ratatui::crossterm::event::Event;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs::File, sync::mpsc};
 use uuid::Uuid;
@@ -28,7 +27,6 @@ pub struct ActiveStream {
 
 #[derive(Debug)]
 pub enum TuiUpdate {
-    CrosstermEvent(Event),
     Img(ImgRender),
     Text(TextMsg),
     UserJoinedRoom(JoinRoomNotification),
@@ -101,12 +99,6 @@ pub enum AppMsg {
 pub struct MpscChannel<T, R> {
     pub tx: mpsc::Sender<T>,
     pub rx: Option<mpsc::Receiver<R>>,
-}
-
-#[derive(Debug)]
-pub struct CrossbemChannel<T, R> {
-    pub tx: crossbeam::channel::Sender<T>,
-    pub rx: crossbeam::channel::Receiver<R>,
 }
 
 #[derive(Debug)]

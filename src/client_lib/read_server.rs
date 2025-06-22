@@ -1,71 +1,67 @@
-use super::{
-    global_states::app_state::get_global_state,
-    util::{
-        config::TCP_FRAME_SIZE_HEADER,
-        types::{TcpStreamMsg, TuiUpdate},
-    },
+use super::util::{
+    config::TCP_FRAME_SIZE_HEADER,
+    types::{TcpStreamMsg, TuiUpdate},
 };
 use crate::shared_lib::types::ServerClientMsg;
 use anyhow::Result;
-use std::{
-    io::{BufReader, Read},
+use tokio::{
+    io::{AsyncReadExt, BufReader, ReadHalf},
     net::TcpStream,
 };
+use tokio_rustls::client::TlsStream;
 
-pub fn listen_for_server() -> Result<()> {
-    let state = get_global_state();
-    let mut tcp = state.tcp.try_clone()?;
-    let tx_tui_update = state.tui_update_channel.tx.clone();
-    let tx_tcp_stream = state.tcp_stream_channel.tx.clone();
-
-    drop(state);
-
-    let mut tcp: BufReader<&mut TcpStream> = BufReader::new(&mut tcp);
-
+pub async fn listen_for_server(
+    mut tcp: ReadHalf<TlsStream<TcpStream>>,
+    tx_tcp_tui: tokio::sync::mpsc::Sender<TuiUpdate>,
+    tx_tcp_stream: tokio::sync::mpsc::Sender<TcpStreamMsg>,
+) -> Result<()> {
+    let mut tcp: BufReader<&mut ReadHalf<TlsStream<TcpStream>>> = BufReader::new(&mut tcp);
     loop {
-        let bytes = read_framed_tcp_msg(&mut tcp)?;
+        let bytes = read_framed_tcp_msg(&mut tcp).await?;
         let msg: ServerClientMsg = bincode::deserialize(&bytes)?;
 
         match msg {
             ServerClientMsg::FileMetadata(data) => {
-                tx_tcp_stream.send(TcpStreamMsg::FileMetadata(data))?
+                tx_tcp_stream.send(TcpStreamMsg::FileMetadata(data)).await?
             }
             ServerClientMsg::FileChunk(chunk) => {
-                tx_tcp_stream.send(TcpStreamMsg::FileChunk(chunk))?
+                tx_tcp_stream.send(TcpStreamMsg::FileChunk(chunk)).await?
             }
             ServerClientMsg::UserJoinedRoom(update) => {
-                tx_tui_update.send(TuiUpdate::UserJoinedRoom(update))?
+                tx_tcp_tui.send(TuiUpdate::UserJoinedRoom(update)).await?
             }
-            ServerClientMsg::Text(msg) => tx_tui_update.send(TuiUpdate::Text(msg))?,
-            ServerClientMsg::Init(data) => tx_tui_update.send(TuiUpdate::Init(data))?,
+            ServerClientMsg::Text(msg) => tx_tcp_tui.send(TuiUpdate::Text(msg)).await?,
+            ServerClientMsg::Init(data) => tx_tcp_tui.send(TuiUpdate::Init(data)).await?,
             ServerClientMsg::UserLeftRoom(update) => {
-                tx_tui_update.send(TuiUpdate::UserLeftRoom(update))?
+                tx_tcp_tui.send(TuiUpdate::UserLeftRoom(update)).await?
             }
-            ServerClientMsg::Auth(auth) => tx_tui_update.send(TuiUpdate::Auth(auth))?,
+            ServerClientMsg::Auth(auth) => tx_tcp_tui.send(TuiUpdate::Auth(auth)).await?,
             ServerClientMsg::Register(res) => {
-                tx_tui_update.send(TuiUpdate::RegisterResponse(res))?
+                tx_tcp_tui.send(TuiUpdate::RegisterResponse(res)).await?
             }
             ServerClientMsg::UserConnected(user) => {
-                tx_tui_update.send(TuiUpdate::UserConnected(user))?
+                tx_tcp_tui.send(TuiUpdate::UserConnected(user)).await?
             }
             ServerClientMsg::UserDisconnected(user) => {
-                tx_tui_update.send(TuiUpdate::UserDisconnected(user))?
+                tx_tcp_tui.send(TuiUpdate::UserDisconnected(user)).await?
             }
             ServerClientMsg::CreateRoomResponse(res) => {
-                tx_tui_update.send(TuiUpdate::JoinRoom(res))?
+                tx_tcp_tui.send(TuiUpdate::JoinRoom(res)).await?
             }
             ServerClientMsg::JoinRoomResponse(res) => {
-                tx_tui_update.send(TuiUpdate::JoinRoom(res))?
+                tx_tcp_tui.send(TuiUpdate::JoinRoom(res)).await?
             }
-            ServerClientMsg::ASCII(img) => tx_tui_update.send(TuiUpdate::Img(img))?,
+            ServerClientMsg::ASCII(img) => tx_tcp_tui.send(TuiUpdate::Img(img)).await?,
         }
     }
 }
 
-pub fn read_framed_tcp_msg(tcp: &mut BufReader<&mut TcpStream>) -> Result<Vec<u8>> {
+async fn read_framed_tcp_msg(
+    tcp: &mut BufReader<&mut ReadHalf<TlsStream<TcpStream>>>,
+) -> Result<Vec<u8>> {
     let mut size_buf = [0u8; TCP_FRAME_SIZE_HEADER];
 
-    tcp.read_exact(&mut size_buf)?;
+    tcp.read_exact(&mut size_buf).await?;
 
     let size = ((size_buf[0] as usize) << 24)
         + ((size_buf[1] as usize) << 16)
@@ -73,7 +69,7 @@ pub fn read_framed_tcp_msg(tcp: &mut BufReader<&mut TcpStream>) -> Result<Vec<u8
         + size_buf[3] as usize;
 
     let mut data = vec![0u8; size];
-    tcp.read_exact(&mut data)?;
+    tcp.read_exact(&mut data).await?;
 
     Ok(data)
 }

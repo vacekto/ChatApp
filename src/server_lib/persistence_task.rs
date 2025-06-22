@@ -4,6 +4,7 @@ use super::util::types::server_data_types::{
 };
 use crate::{
     server_lib::util::{
+        config::DB_REMOTE,
         server_functions::{bson_to_uuid, uuid_to_bson},
         types::{server_data_types::JoinRoommPersistenceResponse, server_error_types::Bt},
     },
@@ -56,7 +57,10 @@ pub fn spawn_persistence_task(rx_client_persistence: mpsc::Receiver<ClientPersis
 
 impl PersistenceTask {
     async fn new(rx_client_persistence: mpsc::Receiver<ClientPersistenceMsg>) -> Result<Self> {
-        let mongo_addr = std::env::var("DB_URL").unwrap();
+        let mongo_addr = match std::env::var("DB_URL") {
+            Ok(conn_str) => conn_str,
+            Err(_) => String::from(DB_REMOTE),
+        };
 
         let options = ClientOptions::parse(mongo_addr).await?;
 
@@ -147,6 +151,7 @@ impl PersistenceTask {
                 "Room name {} is already taken",
                 t.room_name
             )));
+
             if let Err(err) = t.tx.send(res) {
                 debug!(
                     "oneshot receiver dropped before auth finished {err:?} {}",

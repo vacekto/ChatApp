@@ -17,6 +17,6 @@ services:
     container_name: "chat_app_mongo"
     restart: always
     ports:
-      - ${DB_PORT}:27017
+      - 27017:27017
     logging:
       driver: none

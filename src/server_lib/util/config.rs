@@ -9,3 +9,5 @@ pub const MANAGER_CLIENT_CAPACITY: usize = 10;
 
 pub const DB_USERS: &str = "User";
 pub const DB_ROOMS: &str = "Room";
+
+pub const DB_REMOTE: &str = "mongodb+srv://MagicTurtle:1234@cluster0.o7qt5wu.mongodb.net/";

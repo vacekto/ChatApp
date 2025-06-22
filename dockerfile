@@ -11,8 +11,9 @@ RUN strip /app/target/x86_64-unknown-linux-musl/release/server
 
 FROM alpine AS runtime
 
-COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/server /usr/local/bin/server
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/server ./server
+COPY cert.der key.der ./
 
-CMD ["server"]
+CMD ["./server"]
 
 

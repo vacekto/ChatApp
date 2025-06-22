@@ -1,13 +1,11 @@
 use crate::{
     client_lib::{
-        global_states::app_state::get_global_state,
         tui::app::app::App,
         util::types::{
             ActiveEntryInput::{Password, RepeatPassword, Username},
             ActiveEntryScreen::{Login, Register},
             Notification,
         },
-        write_server::frame_data,
     },
     shared_lib::{
         config::{
@@ -19,7 +17,6 @@ use crate::{
 use anyhow::Result;
 use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use regex::Regex;
-use std::io::Write;
 
 impl App {
     fn switch_entry_screen(&mut self) {
@@ -34,7 +31,7 @@ impl App {
         };
     }
 
-    pub fn handle_entry_screen_event(&mut self, event: Event) -> Result<()> {
+    pub async fn handle_entry_screen_event(&mut self, event: Event) -> Result<()> {
         match event {
             Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
                 match key_event.code {
@@ -43,7 +40,7 @@ impl App {
                     }
                     KeyCode::Tab => self.switch_entry_screen(),
                     KeyCode::Esc => self.exit(),
-                    KeyCode::Enter => self.handle_entry_enter()?,
+                    KeyCode::Enter => self.handle_entry_enter().await?,
                     KeyCode::Up => self.move_active_input_up(),
                     KeyCode::Down => self.move_active_input_down(),
 
@@ -52,7 +49,6 @@ impl App {
             }
             _ => {}
         };
-
         Ok(())
     }
 
@@ -89,16 +85,16 @@ impl App {
         };
     }
 
-    fn handle_entry_enter(&mut self) -> Result<()> {
+    async fn handle_entry_enter(&mut self) -> Result<()> {
         match self.active_entry_screen {
-            Login => self.handle_auth()?,
-            Register => self.handle_register()?,
+            Login => self.handle_auth().await?,
+            Register => self.handle_register().await?,
         };
 
         Ok(())
     }
 
-    fn handle_auth(&mut self) -> Result<()> {
+    async fn handle_auth(&mut self) -> Result<()> {
         let username = String::from(self.username_ta_login.lines().join("").trim());
         let password = String::from(self.password_ta_login.lines().join("").trim());
 
@@ -107,21 +103,18 @@ impl App {
             return Ok(());
         };
 
-        let mut state = get_global_state();
         let data = AuthData {
             username,
             pwd: password,
         };
 
         let msg = ClientServerConnectMsg::Login(data);
-        let serialized = bincode::serialize(&msg)?;
-        let framed = frame_data(&serialized);
-        state.tcp.write_all(&framed)?;
+        self.tx_tui_tcp_auth.send(msg).await.ok();
 
         Ok(())
     }
 
-    fn handle_register(&mut self) -> Result<()> {
+    async fn handle_register(&mut self) -> Result<()> {
         let username = String::from(self.username_ta_register.lines().join("\n").trim());
         let password = String::from(self.password_ta_register.lines().join("\n").trim());
         let repeat_password = String::from(self.repeat_password_ta.lines().join("\n").trim());
@@ -131,16 +124,12 @@ impl App {
             return Ok(());
         };
 
-        let mut state = get_global_state();
-
         let data = RegisterData {
             username,
             pwd: password,
         };
         let msg = ClientServerConnectMsg::Register(data);
-        let serialized = bincode::serialize(&msg)?;
-        let framed = frame_data(&serialized);
-        state.tcp.write_all(&framed)?;
+        self.tx_tui_tcp_auth.send(msg).await.ok();
 
         Ok(())
     }

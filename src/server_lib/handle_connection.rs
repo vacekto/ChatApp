@@ -10,20 +10,23 @@ use crate::{
     shared_lib::types::{AuthResponse, ClientServerConnectMsg, ServerClientMsg},
 };
 use anyhow::{anyhow, Result};
+use log::debug;
 use tokio::{net::TcpStream, sync::mpsc};
+use tokio_rustls::server::TlsStream;
 use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 
 pub async fn handle_connection<'a>(
-    tcp: TcpStream,
+    tls_stream: TlsStream<TcpStream>,
     tx_client_manager: mpsc::Sender<ClientManagerMsg>,
     tx_client_persistence: mpsc::Sender<ClientPersistenceMsg>,
 ) -> Result<()> {
-    let (tcp_read, tcp_write) = tcp.into_split();
-    let mut tcp_read = FramedRead::new(tcp_read, LengthDelimitedCodec::new());
+    let (tcp_read, tcp_write) = tokio::io::split(tls_stream);
+    let mut tls_read = FramedRead::new(tcp_read, LengthDelimitedCodec::new());
     let mut tcp_write = FramedWrite::new(tcp_write, LengthDelimitedCodec::new());
 
     loop {
-        let client_msg = match read_client_data(&mut tcp_read).await {
+        debug!("3");
+        let client_msg = match read_client_data(&mut tls_read).await {
             Ok(data) => data,
             Err(err) => match err {
                 TcpDataParsingError::ConnectionClosed => return Ok(()),
@@ -63,7 +66,7 @@ pub async fn handle_connection<'a>(
 
         let client: ClientTask = ClientTask::new(
             user,
-            &mut tcp_read,
+            &mut tls_read,
             &mut tcp_write,
             tx_client_manager.clone(),
             tx_client_persistence.clone(),

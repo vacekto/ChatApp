@@ -13,7 +13,10 @@ use super::util::{
     },
 };
 use crate::{
-    server_lib::util::types::server_error_types::Bt,
+    server_lib::util::types::{
+        server_data_types::{TlsRead, TlsWrite},
+        server_error_types::Bt,
+    },
     shared_lib::types::{
         Channel, ClientServerMsg, JoinRoomNotification, JoinRoomServerResponse, Response, RoomData,
         ServerClientMsg, User, UserInitData,
@@ -25,7 +28,6 @@ use futures::{future::join_all, SinkExt, StreamExt, TryFutureExt};
 use log::{debug, error, warn};
 use std::collections::HashMap;
 use tokio::{
-    net::tcp::{OwnedReadHalf, OwnedWriteHalf},
     select,
     sync::{
         broadcast::{self, error::RecvError},
@@ -33,7 +35,6 @@ use tokio::{
     },
     task,
 };
-use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 use uuid::Uuid;
 
 pub struct ClientTask<'a> {
@@ -44,8 +45,8 @@ pub struct ClientTask<'a> {
     comm_client_drop_channel: MpscChannel<Channel, Channel>,
     client_comm_cleanup_channel: BroadcastChannel<(), ()>,
     close_channel: MpscChannel<ClientTaskResult, ClientTaskResult>,
-    tcp_read: &'a mut FramedRead<OwnedReadHalf, LengthDelimitedCodec>,
-    tcp_write: &'a mut FramedWrite<OwnedWriteHalf, LengthDelimitedCodec>,
+    tcp_read: &'a mut TlsRead,
+    tcp_write: &'a mut TlsWrite,
     room_channels: HashMap<Uuid, broadcast::Sender<Bytes>>,
     direct_channels: HashMap<Uuid, mpsc::Sender<Bytes>>,
     tx_client_persistence: mpsc::Sender<ClientPersistenceMsg>,
@@ -54,8 +55,8 @@ pub struct ClientTask<'a> {
 impl<'a> ClientTask<'a> {
     pub async fn new(
         user: User,
-        tcp_read: &'a mut FramedRead<OwnedReadHalf, LengthDelimitedCodec>,
-        tcp_write: &'a mut FramedWrite<OwnedWriteHalf, LengthDelimitedCodec>,
+        tcp_read: &'a mut TlsRead,
+        tcp_write: &'a mut TlsWrite,
         tx_client_manager: mpsc::Sender<ClientManagerMsg>,
         _tx_client_persistence: mpsc::Sender<ClientPersistenceMsg>,
     ) -> Self {
@@ -711,18 +712,18 @@ impl<'a> ClientTask<'a> {
             loop {
                 select! {
                 result = rx_client_client.recv() => match result {
-                        Some(data) => {
-                            tx_comm_client_data.send(data).await.ok();
-                        },
-                        None => {
-                             tx_comm_client_drop.send(Channel::User(direct_channel_id)).await.ok();
-                             break;
-                            }
-                        },
-                        _ = rx_cleanup.recv() => {
-                            break;
-                        },
-                    };
+                    Some(data) => {
+                        tx_comm_client_data.send(data).await.ok();
+                    },
+                    None => {
+                         tx_comm_client_drop.send(Channel::User(direct_channel_id)).await.ok();
+                         break;
+                        }
+                    },
+                _ = rx_cleanup.recv() => {
+                        break;
+                    },
+                };
             }
             debug!("direct communication task dropping");
         });

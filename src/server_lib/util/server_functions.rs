@@ -1,3 +1,5 @@
+use std::fs;
+
 use super::types::{
     server_data_types::{
         AuthTransit, ClientManagerMsg, ClientPersistenceMsg, IsOnlineTransit, RegisterDataTransit,
@@ -5,23 +7,24 @@ use super::types::{
     server_error_types::{BincodeErr, Bt, TcpErr},
     server_error_wrapper_types::TcpDataParsingError,
 };
-use crate::shared_lib::types::{
-    AuthData, AuthResponse, ClientServerConnectMsg, RegisterData, RegisterResponse, ServerClientMsg,
+use crate::{
+    server_lib::util::types::server_data_types::{TlsRead, TlsWrite},
+    shared_lib::types::{
+        AuthData, AuthResponse, ClientServerConnectMsg, RegisterData, RegisterResponse,
+        ServerClientMsg,
+    },
 };
 use anyhow::{anyhow, Result};
-
 use futures::{SinkExt, StreamExt};
 use mongodb::bson::{spec::BinarySubtype, Binary, Bson};
-use tokio::{
-    net::tcp::{OwnedReadHalf, OwnedWriteHalf},
-    sync::{mpsc, oneshot},
-};
-use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
+use rustls::pki_types::PrivatePkcs8KeyDer;
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
 pub async fn send_server_msg<'a>(
     msg: &ServerClientMsg,
-    tcp_write: &'a mut FramedWrite<OwnedWriteHalf, LengthDelimitedCodec>,
+    tcp_write: &'a mut TlsWrite,
 ) -> Result<(), TcpDataParsingError> {
     let serialized = bincode::serialize(msg).map_err(|err| BincodeErr(err, Bt::new()))?;
     tcp_write
@@ -33,7 +36,7 @@ pub async fn send_server_msg<'a>(
 }
 
 pub async fn read_client_data<'a>(
-    tcp_read: &'a mut FramedRead<OwnedReadHalf, LengthDelimitedCodec>,
+    tcp_read: &'a mut TlsRead,
 ) -> Result<ClientServerConnectMsg, TcpDataParsingError> {
     let auth_bytes = match tcp_read.next().await {
         Some(res) => res.map_err(|err| TcpErr(err, Bt::new()))?,
@@ -136,4 +139,16 @@ pub fn bson_to_uuid(bson: &Bson) -> Option<Uuid> {
     } else {
         None
     }
+}
+
+pub fn load_cert() -> Result<(CertificateDer<'static>, PrivateKeyDer<'static>)> {
+    let cert_path = "cert.der";
+    let key_path = "key.der";
+
+    let (cert_bytes, key_bytes) = (fs::read(cert_path)?, fs::read(key_path)?);
+
+    let cert = CertificateDer::from(cert_bytes);
+    let key = PrivateKeyDer::from(PrivatePkcs8KeyDer::from(key_bytes));
+
+    Ok((cert, key))
 }
