@@ -7,7 +7,7 @@ use anyhow::Result;
 use std::{collections::HashMap, io::Write, path::Path};
 use uuid::Uuid;
 
-pub async fn handle_file_streaming(
+pub async fn handle_file_stream(
     mut rx_tcp_stream: tokio::sync::mpsc::Receiver<TcpStreamMsg>,
 ) -> Result<()> {
     let mut data_streams = HashMap::<Uuid, ActiveStream>::new();
