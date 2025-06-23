@@ -1,10 +1,7 @@
 use anyhow::Result;
 use chat_app::{
     client_lib::{
-        data_stream::handle_file_streaming,
-        // global_states::{app_state::init_global_state, thread_logger::get_thread_runner},
-        read_server::listen_for_server,
-        tui::tui,
+        data_stream::handle_file_stream, read_server::listen_for_server, tui::tui,
         write_to_server::write_to_server,
     },
     shared_lib::types::{Chunk, ClientServerConnectMsg, ClientServerMsg},
@@ -66,7 +63,7 @@ async fn main() -> Result<()> {
         tokio::sync::mpsc::channel::<ClientServerConnectMsg>(20);
 
     tokio::spawn(async move {
-        handle_file_streaming(rx_tcp_stream).await.ok();
+        handle_file_stream(rx_tcp_stream).await.ok();
     });
 
     tokio::spawn(async move {
