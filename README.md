@@ -1,7 +1,7 @@
 # Rust ChatApp
 
 ## About
-Project is a chat application using asynchronous framework Tokio on server written using and frontend, which is build as simple TUI app. Connection is established using raw TCP connection and server also connects to dabatabse for persistence. Purpuse of the project was to get more familiar with standard Rust ecosystem and mechanisms to comfortably use it to write effitient programs. Deploying such personal projects for free proves to be little problematic, works only locally as of yet. 
+Project is a chat application using asynchronous framework Tokio on both server and client, which is build as simple TUI app. Connection is established using raw TCP connection and server also connects to dabatabse for persistence. Purpuse of the project was to get more familiar with standard Rust ecosystem and mechanisms to comfortably use it to write effitient programs. Deploying such personal projects for free proves to be little problematic, works only locally as of yet. 
 
 
 ## How to start
@@ -25,7 +25,7 @@ either Docker or Rust local dev setup
 
 ### Locally:
 
-## TLC
+## TLS
 
 TCP connection is encrypted by self signed certificate saved in the repo along with the private key. This is obviously not secure and inteded only as personal project practice.
 
