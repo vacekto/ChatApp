@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use super::server_error_types::{BincodeErr, TcpErr};
+use super::server_error_types::{BincodeErr, WsErr};
 
 // #[derive(Error, Debug)]
 // pub enum DataParsingErrorOriginal {
@@ -21,7 +21,7 @@ pub enum ClientInitError {
 #[derive(Error, Debug)]
 pub enum AuthError {
     #[error(transparent)]
-    DataParsing(#[from] TcpDataParsingError),
+    DataParsing(#[from] WssDataParsingError),
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
@@ -35,11 +35,11 @@ pub enum LoginError {
 }
 
 #[derive(Error, Debug)]
-pub enum TcpDataParsingError {
+pub enum WssDataParsingError {
     #[error(transparent)]
     Bincode(#[from] BincodeErr),
     #[error(transparent)]
-    Tcp(#[from] TcpErr),
+    Wss(#[from] WsErr),
     #[error("Connection closed")]
     ConnectionClosed,
     #[error(transparent)]

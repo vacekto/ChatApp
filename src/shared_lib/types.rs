@@ -1,5 +1,5 @@
 use crate::{
-    client_lib::util::{config::TCP_CHUNK_BUFFER_SIZE, types::ImgRender},
+    client_lib::util::{config::CHUNK_BUFFER_SIZE, types::ImgRender},
     server_lib::util::types::server_data_types::CreateRoomResponse,
 };
 use serde::{Deserialize, Serialize};
@@ -29,7 +29,7 @@ pub struct TextMsg {
 pub struct Chunk {
     pub from: User,
     #[serde(with = "serde_bytes")]
-    pub data: [u8; TCP_CHUNK_BUFFER_SIZE],
+    pub data: [u8; CHUNK_BUFFER_SIZE],
     pub to: Channel,
     pub stream_id: Uuid,
 }
@@ -68,7 +68,7 @@ pub enum ServerClientMsg {
     JoinRoomResponse(JoinRoomServerResponse),
 }
 
-pub type JoinRoomServerResponse = Response<RoomData>;
+pub type JoinRoomServerResponse = Result<RoomData, String>;
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct JoinRoomNotification {
@@ -132,15 +132,15 @@ pub struct AuthData {
     pub pwd: String,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
-pub enum Response<T> {
-    Success(T),
-    Failure(String),
-}
+// #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+// pub enum Response<T> {
+//     Success(T),
+//     Failure(String),
+// }
 
-pub type AuthResponse = Response<User>;
+pub type AuthResponse = Result<User, String>;
 
-pub type RegisterResponse = Response<User>;
+pub type RegisterResponse = Result<User, String>;
 
 #[derive(Deserialize, Serialize, Debug)]
 pub enum ClientServerConnectMsg {

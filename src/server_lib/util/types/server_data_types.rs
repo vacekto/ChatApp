@@ -1,11 +1,13 @@
 use bytes::Bytes;
+use futures::stream::{SplitSink, SplitStream};
 use mongodb::bson::Bson;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc, oneshot};
+use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
 use uuid::Uuid;
 
 use crate::shared_lib::types::{
-    AuthData, AuthResponse, RegisterData, RegisterResponse, Response, RoomData, User, UserInitData,
+    AuthData, AuthResponse, RegisterData, RegisterResponse, RoomData, User, UserInitData,
 };
 
 #[derive(Debug)]
@@ -104,8 +106,8 @@ pub enum ClientPersistenceMsg {
     JoinRoom(JoinRoomServerTransit),
 }
 
-pub type CreateRoomResponse = Response<RoomData>;
-pub type JoinRoommPersistenceResponse = Response<RoomData>;
+pub type CreateRoomResponse = Result<RoomData, String>;
+pub type JoinRoommPersistenceResponse = Result<RoomData, String>;
 
 #[derive(Debug)]
 pub struct JoinRoomServerTransit {
@@ -162,3 +164,21 @@ pub struct DbUser {
     pub pwd: String,
     pub room_ids: Vec<Bson>,
 }
+
+// pub type TlsRead = FramedRead<
+//     tokio::io::ReadHalf<tokio_rustls::server::TlsStream<tokio::net::TcpStream>>,
+//     LengthDelimitedCodec,
+// >;
+
+// pub type TlsWrite = FramedWrite<
+//     tokio::io::WriteHalf<tokio_rustls::server::TlsStream<tokio::net::TcpStream>>,
+//     LengthDelimitedCodec,
+// >;
+
+pub type WssServer = WebSocketStream<tokio_rustls::server::TlsStream<tokio::net::TcpStream>>;
+pub type WssServerRead = SplitStream<WssServer>;
+pub type WssServerWrite = SplitSink<WssServer, Message>;
+
+pub type WssClient = WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+pub type WssClientRead = SplitStream<WssClient>;
+pub type WssClientWrite = SplitSink<WssClient, Message>;

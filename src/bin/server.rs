@@ -4,33 +4,40 @@ use chat_app::server_lib::{
     persistence_task::spawn_persistence_task,
     util::{
         config::{CLIENT_MANAGER_CAPACITY, CLIENT_PERSISTENCE_CAPACITY},
-        types::{
-            server_data_types::{ClientManagerMsg, ClientPersistenceMsg},
-            server_error_types::Bt,
-        },
+        server_functions::load_cert,
+        types::server_data_types::{ClientManagerMsg, ClientPersistenceMsg},
     },
 };
+use dotenv::dotenv;
 use log::{error, info};
-use std::error::Error;
+use std::{env, error::Error, sync::Arc};
 use tokio::{net::TcpListener, sync::mpsc, task};
+use tokio_rustls::TlsAcceptor;
+use tokio_tungstenite::accept_async;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let server_addr = match std::env::var("SERVER_PORT") {
-        Ok(port) => format!("0.0.0.0:{port}"),
-        Err(_) => String::from("0.0.0.0:11111"),
-    };
+    dotenv().ok();
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
 
     env_logger::Builder::from_default_env()
         .filter_level(log::LevelFilter::Info)
         .init();
 
+    let (cert, key) = load_cert()?;
+    let tls_config = rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(vec![cert], key)?;
+
+    let server_addr = format!("{}:{}", env::var("SERVER_HOST")?, env::var("SERVER_PORT")?);
+
     let listener = TcpListener::bind(&server_addr)
         .await
         .expect("Tcp listerner failed");
 
-    info!("listening on: {}", server_addr);
-
+    let acceptor = TlsAcceptor::from(Arc::new(tls_config));
     let (tx_client_manager, rx_client_manager) =
         mpsc::channel::<ClientManagerMsg>(CLIENT_MANAGER_CAPACITY);
 
@@ -40,21 +47,24 @@ async fn main() -> Result<(), Box<dyn Error>> {
     spawn_manager_task(rx_client_manager);
     spawn_persistence_task(rx_client_persistence);
 
-    loop {
-        match listener.accept().await {
-            Ok((tcp, _)) => {
-                let tx_client_manager = tx_client_manager.clone();
-                let tx_client_persistence = tx_client_persistence.clone();
+    info!("server running on {}", server_addr);
 
-                task::spawn(async move {
-                    if let Err(err) =
-                        handle_connection(tcp, tx_client_manager, tx_client_persistence).await
-                    {
-                        error!("closing connection due to: {err}");
-                    };
-                });
-            }
-            Err(err) => error!("Error establishing connection: {}, {}", err, Bt::new()),
+    loop {
+        if let Ok((tcp, _addr)) = listener.accept().await {
+            let acceptor = acceptor.clone();
+            let tls = acceptor.accept(tcp).await.unwrap();
+            let wss = accept_async(tls).await.expect("WebSocket handshake failed");
+            let tx_client_manager = tx_client_manager.clone();
+            let tx_client_persistence = tx_client_persistence.clone();
+            // let (write, mut read) = wss.split();
+
+            task::spawn(async move {
+                if let Err(err) =
+                    handle_connection(wss, tx_client_manager, tx_client_persistence).await
+                {
+                    error!("closing connection due to: {err}");
+                };
+            });
         }
     }
 }

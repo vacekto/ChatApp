@@ -143,10 +143,11 @@ impl PersistenceTask {
         let room_res = rooms_collection.find_one(filter).await?;
 
         if room_res.is_some() {
-            let res = CreateRoomResponse::Failure(String::from(format!(
+            let res = CreateRoomResponse::Err(String::from(format!(
                 "Room name {} is already taken",
                 t.room_name
             )));
+
             if let Err(err) = t.tx.send(res) {
                 debug!(
                     "oneshot receiver dropped before auth finished {err:?} {}",
@@ -160,7 +161,7 @@ impl PersistenceTask {
         let db_user = match users_collection.find_one(filter).await? {
             None => {
                 warn!("Not registered user attepmted to create room");
-                let res = CreateRoomResponse::Failure(String::from(format!(
+                let res = CreateRoomResponse::Err(String::from(format!(
                     "Provided username is not registered"
                 )));
                 if let Err(err) = t.tx.send(res) {
@@ -199,7 +200,7 @@ impl PersistenceTask {
         rooms_collection.insert_one(new_db_room).await?;
         users_collection.find_one_and_update(filter, update).await?;
 
-        let res = CreateRoomResponse::Success(room_data);
+        let res = CreateRoomResponse::Ok(room_data);
         if let Err(err) = t.tx.send(res) {
             debug!(
                 "oneshot auth receiver dropped before auth finished {err:?} {}",
@@ -224,7 +225,7 @@ impl PersistenceTask {
                     "No room named {} is registered, but you can create one!",
                     t.room_name
                 );
-                let res = JoinRoommPersistenceResponse::Failure(msg);
+                let res = JoinRoommPersistenceResponse::Err(msg);
                 t.tx.send(res).ok();
                 return Ok(());
             }
@@ -238,7 +239,7 @@ impl PersistenceTask {
                 == t.user.id
         }) {
             let msg = format!("User {} already is in the room.", t.user.username);
-            let res = JoinRoommPersistenceResponse::Failure(msg);
+            let res = JoinRoommPersistenceResponse::Err(msg);
             t.tx.send(res).ok();
             return Ok(());
         }
@@ -247,14 +248,14 @@ impl PersistenceTask {
             (Some(correct_pwd), Some(provided_pwd)) => {
                 if correct_pwd != provided_pwd {
                     let msg = format!("Incorrect room password.");
-                    let res = JoinRoommPersistenceResponse::Failure(msg);
+                    let res = JoinRoommPersistenceResponse::Err(msg);
                     t.tx.send(res).ok();
                     return Ok(());
                 }
             }
             (Some(_), None) => {
                 let msg = format!("Room password required.");
-                let res = JoinRoommPersistenceResponse::Failure(msg);
+                let res = JoinRoommPersistenceResponse::Err(msg);
                 t.tx.send(res).ok();
                 return Ok(());
             }
@@ -290,7 +291,7 @@ impl PersistenceTask {
 
         // user.rooms.push(room.id);
 
-        let res = JoinRoommPersistenceResponse::Success(data);
+        let res = JoinRoommPersistenceResponse::Ok(data);
         t.tx.send(res).ok();
 
         Ok(())
@@ -298,7 +299,7 @@ impl PersistenceTask {
 
     async fn handle_auth(t: AuthTransit, users_collection: Collection<DbUser>) -> Result<()> {
         let err_msg = String::from("Internal server error");
-        let err_res = AuthResponse::Failure(err_msg);
+        let err_res = AuthResponse::Err(err_msg);
 
         let filter = doc! { "username": &t.data.username };
         let user_res = users_collection.find_one(filter).await?;
@@ -306,7 +307,7 @@ impl PersistenceTask {
         let db_user = match user_res {
             Some(c) => c,
             None => {
-                let res = AuthResponse::Failure(format!(
+                let res = AuthResponse::Err(format!(
                     "No account with username {} found, register first",
                     t.data.username
                 ));
@@ -334,13 +335,13 @@ impl PersistenceTask {
         let argon2 = Argon2::default();
         let res = match argon2.verify_password(t.data.pwd.as_bytes(), &parsed_hash) {
             Err(argon2::password_hash::Error::Password) => {
-                AuthResponse::Failure(format!("Incorrect password"))
+                AuthResponse::Err(format!("Incorrect password"))
             }
             Err(err) => {
                 error!("error hashing password: {err}");
-                AuthResponse::Failure(format!("Internal server error"))
+                AuthResponse::Err(format!("Internal server error"))
             }
-            Ok(_) => AuthResponse::Success(User {
+            Ok(_) => AuthResponse::Ok(User {
                 username: t.data.username,
                 id: bson_to_uuid(&db_user.id).ok_or(anyhow!("expected uuid value"))?,
             }),
@@ -418,11 +419,11 @@ impl PersistenceTask {
         username_re: Regex,
     ) -> Result<()> {
         let err_msg = String::from("Internal server error, user not created");
-        let err_res = RegisterResponse::Failure(err_msg);
+        let err_res = RegisterResponse::Err(err_msg);
 
         if !username_re.is_match(&t.data.username) {
             let err_msg = String::from(USERNAME_ERROR_MSG);
-            let err_res = RegisterResponse::Failure(err_msg);
+            let err_res = RegisterResponse::Err(err_msg);
             if let Err(err) = t.tx.send(err_res) {
                 debug!("oneshot register res receiver dropped{err:?} {}", Bt::new());
             };
@@ -433,7 +434,7 @@ impl PersistenceTask {
         let res = users_collection.find_one(filter).await?;
 
         if res.is_some() {
-            let res = RegisterResponse::Failure(String::from("Username already taken"));
+            let res = RegisterResponse::Err(String::from("Username already taken"));
             if let Err(err) = t.tx.send(res) {
                 debug!("oneshot register res receiver dropped{err:?} {}", Bt::new());
             };
@@ -445,7 +446,7 @@ impl PersistenceTask {
             || !&t.data.pwd.chars().any(|c| c.is_uppercase())
             || !&t.data.pwd.chars().any(|c| c.is_ascii_digit())
         {
-            let res = RegisterResponse::Failure(String::from(PASSWORD_ERROR_MSG));
+            let res = RegisterResponse::Err(String::from(PASSWORD_ERROR_MSG));
             if let Err(err) = t.tx.send(res) {
                 debug!("oneshot register res receiver dropped{err:?} {}", Bt::new());
             };
@@ -484,7 +485,7 @@ impl PersistenceTask {
 
         rooms_collection.update_one(filter, update).await?;
 
-        let res = RegisterResponse::Success(new_user);
+        let res = RegisterResponse::Ok(new_user);
         users_collection.insert_one(new_db_user).await?;
 
         if let Err(err) = t.tx.send(res) {

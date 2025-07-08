@@ -41,8 +41,6 @@ impl ManagerTask {
                 "all tx_client_manager transmitters got dropped, one needs to live in server.rs to clone for new connections!!",
             );
 
-            // debug!("msg");
-
             match msg {
                 ClientManagerMsg::ClientConnected(client) => self.handle_client_connected(client),
                 ClientManagerMsg::ClientDropped(id) => self.handle_client_dropped(id),

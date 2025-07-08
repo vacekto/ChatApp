@@ -9,7 +9,7 @@ pub struct BincodeErr(pub Box<bincode::ErrorKind>, pub Bt);
 
 #[derive(Error, Debug)]
 #[error("Failed to read or write framed message via TCP stream, actual error: {0}{1}")]
-pub struct TcpErr(pub std::io::Error, pub Bt);
+pub struct WsErr(pub tokio_tungstenite::tungstenite::Error, pub Bt);
 
 #[derive(Error, Debug)]
 #[error("{}", self.location)]
