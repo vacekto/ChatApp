@@ -1,12 +1,12 @@
 services:
-  chatapp:
+  server:
     restart: always
     build:
       context: ./
-      dockerfile: Dockerfile
+      dockerfile: server/Dockerfile
     container_name: "chat_app"
     ports:
-      - ${SERVER_PORT}:11111
+      - ${SERVER_PORT}:${SERVER_PORT}
 
     environment:
       SERVER_PORT: "${SERVER_PORT}"
@@ -18,5 +18,7 @@ services:
     restart: always
     ports:
       - ${DB_PORT}:27017
+    environment:
+      - DB_URL=true
     logging:
       driver: none

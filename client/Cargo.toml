@@ -1,0 +1,19 @@
+[package]
+name = "client"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+shared = { path = "../shared" }
+uuid = { version = "1.4", features = ["v4", "serde"] }
+bincode = "1.3.3"
+serde = { version = "1.0.219", features = ["derive"] }
+anyhow = { version = "1.0.97", features = ["backtrace"] }
+once_cell = "1.21.3"
+ratatui = "0.29.0"
+tui-textarea = "0.7.0"
+artem = "=3.0.0"
+image = "0.25.6"
+crossbeam = "0.8.4"
+regex = "1.11.1"
+dotenv = "0.15.0"

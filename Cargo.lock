@@ -439,35 +439,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
-name = "chat_app"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "argon2",
- "artem",
- "backtrace",
- "bincode",
- "bytes",
- "crossbeam",
- "dotenv",
- "env_logger",
- "futures",
- "image",
- "log",
- "mongodb",
- "once_cell",
- "ratatui",
- "regex",
- "serde",
- "serde_bytes",
- "thiserror 2.0.12",
- "tokio",
- "tokio-util",
- "tui-textarea",
- "uuid",
-]
-
-[[package]]
 name = "chrono"
 version = "0.4.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -537,6 +508,25 @@ checksum = "724842fa9b144f9b89b3f3d371a89f3455eea660361d13a554f68f8ae5d6c13a"
 dependencies = [
  "clap",
  "roff",
+]
+
+[[package]]
+name = "client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "artem",
+ "bincode",
+ "crossbeam",
+ "dotenv",
+ "image",
+ "once_cell",
+ "ratatui",
+ "regex",
+ "serde",
+ "shared",
+ "tui-textarea",
+ "uuid",
 ]
 
 [[package]]
@@ -2498,6 +2488,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "argon2",
+ "backtrace",
+ "bincode",
+ "bytes",
+ "dotenv",
+ "env_logger",
+ "futures",
+ "log",
+ "mongodb",
+ "regex",
+ "serde",
+ "serde_bytes",
+ "shared",
+ "thiserror 2.0.12",
+ "tokio",
+ "tokio-util",
+ "uuid",
+]
+
+[[package]]
 name = "sha-1"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2517,6 +2531,16 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest",
+]
+
+[[package]]
+name = "shared"
+version = "0.1.0"
+dependencies = [
+ "ratatui",
+ "serde",
+ "serde_bytes",
+ "uuid",
 ]
 
 [[package]]
