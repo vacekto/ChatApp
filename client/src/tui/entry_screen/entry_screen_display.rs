@@ -104,7 +104,7 @@ impl App {
             .constraints(vec![Constraint::Length(3), Constraint::Fill(0)])
             .split(wrapper_notification)[0];
 
-        let headline_text = if self.active_entry_screen == ActiveEntryScreen::Login {
+        let headline_text = if self.active_entry_screen == ActiveEntryScreen::ASLogin {
             "Login"
         } else {
             "Register"
@@ -184,13 +184,13 @@ impl App {
         }
 
         match self.active_entry_screen {
-            ActiveEntryScreen::Login => {
+            ActiveEntryScreen::ASLogin => {
                 self.username_ta_login
                     .render(rect_username.inner(Margin::new(1, 1)), buf);
                 self.password_ta_login
                     .render(rect_password.inner(Margin::new(1, 1)), buf);
             }
-            ActiveEntryScreen::Register => {
+            ActiveEntryScreen::ASRegister => {
                 self.username_ta_register
                     .render(rect_username.inner(Margin::new(1, 1)), buf);
                 self.password_ta_register
@@ -235,7 +235,7 @@ impl App {
             .border_style(style_input_border.clone())
             .render(rect_password, buf);
 
-        if self.active_entry_screen == ActiveEntryScreen::Register {
+        if self.active_entry_screen == ActiveEntryScreen::ASRegister {
             let title_password_repeat =
                 Span::styled(" Repeat password ", style_input_title.clone());
             Block::bordered()

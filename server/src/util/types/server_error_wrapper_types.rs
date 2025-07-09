@@ -1,14 +1,5 @@
+use super::server_error_types::{BincodeErr, WsErr};
 use thiserror::Error;
-
-use super::server_error_types::{BincodeErr, TcpErr};
-
-// #[derive(Error, Debug)]
-// pub enum DataParsingErrorOriginal {
-//     #[error("{0:?}")]
-//     TcpReadWrite(#[from] std::io::Error),
-//     #[error("{0:?}")]
-//     Bincode(#[from] Box<bincode::ErrorKind>),
-// }
 
 #[derive(Error, Debug)]
 pub enum ClientInitError {
@@ -21,7 +12,7 @@ pub enum ClientInitError {
 #[derive(Error, Debug)]
 pub enum AuthError {
     #[error(transparent)]
-    DataParsing(#[from] TcpDataParsingError),
+    DataParsing(#[from] WsDataParsingError),
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
@@ -35,11 +26,11 @@ pub enum LoginError {
 }
 
 #[derive(Error, Debug)]
-pub enum TcpDataParsingError {
+pub enum WsDataParsingError {
     #[error(transparent)]
     Bincode(#[from] BincodeErr),
     #[error(transparent)]
-    Tcp(#[from] TcpErr),
+    Wcp(#[from] WsErr),
     #[error("Connection closed")]
     ConnectionClosed,
     #[error(transparent)]

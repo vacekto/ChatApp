@@ -1,5 +1,3 @@
-use crate::util::types::server_error_types::Bt;
-
 use super::util::{
     config::{COMM_CLIENT_CAPACITY, DIRECT_CAPACITY, MANAGER_CLIENT_CAPACITY, ROOM_CAPACITY},
     types::{
@@ -9,12 +7,17 @@ use super::util::{
             JoinRoomServerTransit, JoinRoommPersistenceRes, ManagerClientMsg, MpscChannel,
             MultipleRoomsUpdateTransit, RoomChannelTxTransit, RoomUpdateTransit, UserDataTransit,
         },
-        server_error_types::{BincodeErr, TcpErr},
-        server_error_wrapper_types::TcpDataParsingError,
+        server_error_types::{BincodeErr, WsErr},
+        server_error_wrapper_types::WsDataParsingError,
     },
 };
+use crate::util::types::{
+    server_data_types::{WsRead, WsWrite},
+    server_error_types::Bt,
+};
 use anyhow::{Result, anyhow};
-use bytes::{Bytes, BytesMut};
+use bincode::deserialize;
+use bytes::Bytes;
 use futures::{SinkExt, StreamExt, TryFutureExt, future::join_all};
 use log::{debug, error, warn};
 use shared::types::{
@@ -23,7 +26,6 @@ use shared::types::{
 };
 use std::collections::HashMap;
 use tokio::{
-    net::tcp::{OwnedReadHalf, OwnedWriteHalf},
     select,
     sync::{
         broadcast::{self, error::RecvError},
@@ -31,7 +33,7 @@ use tokio::{
     },
     task,
 };
-use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
+use tokio_tungstenite::tungstenite::Message;
 use uuid::Uuid;
 
 pub struct ClientTask<'a> {
@@ -42,8 +44,8 @@ pub struct ClientTask<'a> {
     comm_client_drop_channel: MpscChannel<Channel, Channel>,
     client_comm_cleanup_channel: BroadcastChannel<(), ()>,
     close_channel: MpscChannel<ClientTaskResult, ClientTaskResult>,
-    tcp_read: &'a mut FramedRead<OwnedReadHalf, LengthDelimitedCodec>,
-    tcp_write: &'a mut FramedWrite<OwnedWriteHalf, LengthDelimitedCodec>,
+    ws_read: &'a mut WsRead,
+    ws_write: &'a mut WsWrite,
     room_channels: HashMap<Uuid, broadcast::Sender<Bytes>>,
     direct_channels: HashMap<Uuid, mpsc::Sender<Bytes>>,
     tx_client_persistence: mpsc::Sender<ClientPersistenceMsg>,
@@ -52,8 +54,8 @@ pub struct ClientTask<'a> {
 impl<'a> ClientTask<'a> {
     pub async fn new(
         user: User,
-        tcp_read: &'a mut FramedRead<OwnedReadHalf, LengthDelimitedCodec>,
-        tcp_write: &'a mut FramedWrite<OwnedWriteHalf, LengthDelimitedCodec>,
+        ws_read: &'a mut WsRead,
+        ws_write: &'a mut WsWrite,
         tx_client_manager: mpsc::Sender<ClientManagerMsg>,
         _tx_client_persistence: mpsc::Sender<ClientPersistenceMsg>,
     ) -> Self {
@@ -112,8 +114,8 @@ impl<'a> ClientTask<'a> {
             id: user.id,
             direct_channels,
             room_channels,
-            tcp_read,
-            tcp_write,
+            ws_read: ws_read,
+            ws_write: ws_write,
             comm_client_data_channel,
             client_manager_channel,
             client_comm_cleanup_channel,
@@ -123,7 +125,7 @@ impl<'a> ClientTask<'a> {
         }
     }
 
-    async fn init(&mut self) -> Result<(), TcpDataParsingError> {
+    async fn init(&mut self) -> Result<(), WsDataParsingError> {
         let init_data = self.get_user_init_data().await?;
 
         let msg = ServerClientMsg::Init(init_data.clone());
@@ -256,7 +258,7 @@ impl<'a> ClientTask<'a> {
 
         let result = loop {
             select! {
-                result = self.tcp_read.next() => if let Err(err) = self.handle_tcp_msg(result).await  {
+                result = self.ws_read.next() => if let Err(err) = self.handle_ws_msg(result).await {
                     error!("data processing error: {}", err);
                     break ClientTaskResult::Close;
                 },
@@ -272,7 +274,7 @@ impl<'a> ClientTask<'a> {
                         }
                     };
 
-                    if let Err(err) = self.tcp_write.send(result).await{
+                    if let Err(err) = self.ws_write.send(result.into()).await{
                         error!("Error writing data to TCP, :{}",err);
                         break ClientTaskResult::Close;
                     };
@@ -340,25 +342,29 @@ impl<'a> ClientTask<'a> {
         };
     }
 
-    async fn send_to_client(&mut self, msg: ServerClientMsg) -> Result<(), TcpDataParsingError> {
+    async fn send_to_client(&mut self, msg: ServerClientMsg) -> Result<(), WsDataParsingError> {
         let serialized = bincode::serialize(&msg).map_err(|err| BincodeErr(err, Bt::new()))?;
-        self.tcp_write
+        self.ws_write
             .send(serialized.into())
-            .map_err(|err| TcpErr(err, Bt::new()))
+            .map_err(|err| WsErr(err, Bt::new()))
             .await?;
         Ok(())
     }
 
-    async fn handle_tcp_msg(
+    async fn handle_ws_msg(
         &mut self,
-        result: Option<Result<BytesMut, std::io::Error>>,
-    ) -> Result<(), TcpDataParsingError> {
+        result: Option<Result<Message, tokio_tungstenite::tungstenite::Error>>,
+    ) -> Result<(), WsDataParsingError> {
         match result {
             Some(frame) => {
-                let data = frame.map_err(|err| TcpErr(err, Bt::new()))?;
+                let ws_msg = frame.map_err(|err| WsErr(err, Bt::new()))?;
 
-                let message: ClientServerMsg =
-                    bincode::deserialize(&data).map_err(|err| BincodeErr(err, Bt::new()))?;
+                let message: ClientServerMsg = match ws_msg {
+                    Message::Binary(bytes) => {
+                        deserialize(&bytes).map_err(|err| BincodeErr(err, Bt::new()))?
+                    }
+                    _ => unreachable!(),
+                };
 
                 match message {
                     ClientServerMsg::ASCII(img) => {
@@ -576,7 +582,7 @@ impl<'a> ClientTask<'a> {
         &mut self,
         msg: ServerClientMsg,
         target: Channel,
-    ) -> Result<(), TcpDataParsingError> {
+    ) -> Result<(), WsDataParsingError> {
         let serialized = bincode::serialize(&msg).map_err(|err| BincodeErr(err, Bt::new()))?;
         let data = Bytes::from(serialized);
 

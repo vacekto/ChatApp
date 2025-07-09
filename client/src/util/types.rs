@@ -1,9 +1,11 @@
-use ratatui::crossterm::event::Event;
+use futures::stream::{SplitSink, SplitStream};
 use shared::types::{
     AuthResponse, Channel, Chunk, DirectChannel, FileMetadata, ImgRender, JoinRoomNotification,
     LeaveRoomNotification, RegisterResponse, RoomData, TextMsg, TuiRoom, User, UserInitData,
 };
 use std::{collections::HashMap, fs::File, sync::mpsc};
+use tokio::net::TcpStream;
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite::Message};
 use uuid::Uuid;
 
 #[derive(Debug, Default)]
@@ -26,7 +28,6 @@ pub struct ActiveStream {
 
 #[derive(Debug)]
 pub enum TuiUpdate {
-    CrosstermEvent(Event),
     Img(ImgRender),
     Text(TextMsg),
     UserJoinedRoom(JoinRoomNotification),
@@ -79,8 +80,8 @@ pub enum ActiveEntryInput {
 
 #[derive(PartialEq)]
 pub enum ActiveEntryScreen {
-    Login,
-    Register,
+    ASLogin,
+    ASRegister,
 }
 
 #[derive(Clone)]
@@ -92,12 +93,6 @@ pub enum AppMsg {
 pub struct MpscChannel<T, R> {
     pub tx: mpsc::Sender<T>,
     pub rx: Option<mpsc::Receiver<R>>,
-}
-
-#[derive(Debug)]
-pub struct CrossbemChannel<T, R> {
-    pub tx: crossbeam::channel::Sender<T>,
-    pub rx: crossbeam::channel::Receiver<R>,
 }
 
 #[derive(Debug)]
@@ -114,7 +109,7 @@ pub enum SelectorEntryKind {
 }
 
 #[derive(Debug)]
-pub enum TcpStreamMsg {
+pub enum WsStreamMsg {
     FileChunk(Chunk),
     FileMetadata(FileMetadata),
 }
@@ -141,3 +136,6 @@ pub enum FileAction {
     ASCII,
     File,
 }
+
+pub type WsRead = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
+pub type WsWrite = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>;

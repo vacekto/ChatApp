@@ -1,5 +1,4 @@
 use crate::{
-    global_states::{app_state::get_global_state, thread_logger::get_thread_runner},
     tui::accessories::{
         create_room::create_room::RoomCreator, file_selector::file_selector::FileSelector,
     },
@@ -7,11 +6,10 @@ use crate::{
         config::THEME_GRAY_GREEN_LIGHT,
         types::{
             ActiveChannel, ActiveCreateRoomInput, ActiveEntryInput, ActiveEntryScreen,
-            ActiveScreen, ActiveStream, ChannelKind, Focus, MpscChannel, Notification, TuiUpdate,
+            ActiveScreen, ActiveStream, ChannelKind, Focus, Notification, TuiUpdate,
         },
     },
 };
-
 use anyhow::{Result, bail};
 use ratatui::{
     DefaultTerminal, Frame,
@@ -22,15 +20,16 @@ use ratatui::{
 use shared::{
     config::PUBLIC_ROOM_ID,
     types::{
-        Channel, ChannelMsg, Chunk, ClientServerMsg, DirectChannel, ImgRender,
-        JoinRoomNotification, LeaveRoomNotification, RegisterResponse, RoomActionRes, TextMsg,
-        TuiRoom, User, UserInitData,
+        Channel, ChannelMsg, Chunk, ClientServerConnectMsg, ClientServerMsg, DirectChannel,
+        ImgRender, JoinRoomNotification, LeaveRoomNotification, RegisterResponse, RoomData,
+        TextMsg, TuiRoom, User, UserInitData,
     },
 };
 use std::{
     collections::{HashMap, VecDeque},
     str::FromStr,
 };
+use tokio::select;
 use tui_textarea::TextArea;
 use uuid::Uuid;
 
@@ -58,27 +57,23 @@ pub struct App {
     pub room_creator: RoomCreator,
     pub login_screen_notification: Option<Notification>,
     pub main_scroll_offset: usize,
-    pub tui_channel: MpscChannel<TuiUpdate, TuiUpdate>,
-    pub tx_tui_tcp_msg: crossbeam::channel::Sender<ClientServerMsg>,
-    pub tx_tui_tcp_file: crossbeam::channel::Sender<Chunk>,
+    pub tx_tui_ws_msg: tokio::sync::mpsc::Sender<ClientServerMsg>,
+    pub tx_tui_ws_file: tokio::sync::mpsc::Sender<Chunk>,
     pub focus: Focus,
+    pub rx_ws_tui: tokio::sync::mpsc::Receiver<TuiUpdate>,
+    pub tx_events_tui: tokio::sync::mpsc::Sender<Event>,
+    pub rx_events_tui: tokio::sync::mpsc::Receiver<Event>,
+    pub tx_tui_ws_auth: tokio::sync::mpsc::Sender<ClientServerConnectMsg>,
 }
 
 impl App {
-    pub fn new() -> Self {
-        let mut state = get_global_state();
-
-        let tx_tui_tcp_msg = state.tui_tcp_msg_channel.tx.clone();
-        let tx_tui_tcp_file = state.tui_tcp_file_channel.tx.clone();
-        let tx_tui_update = state.tui_update_channel.tx.clone();
-        let rx_tui_update = state
-            .tui_update_channel
-            .rx
-            .take()
-            .expect("rx_tui_update is already taken");
-
-        drop(state);
-
+    pub fn new(
+        rx_ws_tui: tokio::sync::mpsc::Receiver<TuiUpdate>,
+        tx_tui_ws_file: tokio::sync::mpsc::Sender<Chunk>,
+        tx_tui_ws_msg: tokio::sync::mpsc::Sender<ClientServerMsg>,
+        tx_tui_ws_auth: tokio::sync::mpsc::Sender<ClientServerConnectMsg>,
+    ) -> Self {
+        let (tx_events_tui, rx_events_tui) = tokio::sync::mpsc::channel(20);
         App {
             username: String::new(),
             id: Uuid::nil(),
@@ -97,7 +92,7 @@ impl App {
             room_channels: vec![],
             data_streams: HashMap::new(),
             active_screen: ActiveScreen::Entry,
-            active_entry_screen: ActiveEntryScreen::Login,
+            active_entry_screen: ActiveEntryScreen::ASLogin,
             active_entry_input: ActiveEntryInput::Username,
             active_create_room_input: ActiveCreateRoomInput::Name,
             display_file_selector: false,
@@ -106,42 +101,49 @@ impl App {
             room_creator: RoomCreator::new(),
             login_screen_notification: None,
             main_scroll_offset: 0,
-            tui_channel: MpscChannel {
-                tx: tx_tui_update,
-                rx: Some(rx_tui_update),
-            },
-            tx_tui_tcp_msg,
-            tx_tui_tcp_file,
+            rx_ws_tui,
+            tx_tui_ws_msg,
+            tx_tui_ws_file,
+            tx_tui_ws_auth: tx_tui_ws_auth,
             focus: Focus::Messages,
+            rx_events_tui,
+            tx_events_tui,
         }
     }
 
-    pub fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
-        self.listen_for_tui_events();
+    pub async fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
+        self.listen_for_tui_events().await;
 
-        let rx_tui = self.tui_channel.rx.take().unwrap();
         while !self.exit {
             terminal.draw(|frame| self.draw(frame))?;
 
-            match rx_tui.recv()? {
-                TuiUpdate::CrosstermEvent(e) => self.handle_events(e)?,
-                TuiUpdate::Img(img) => self.handle_img_render(img)?,
-                TuiUpdate::Auth(data) => self.handle_auth_response(data),
-                TuiUpdate::RegisterResponse(res) => self.handle_register_response(res),
-                TuiUpdate::UserJoinedRoom(update) => self.handle_user_joined_room(update),
-                TuiUpdate::UserLeftRoom(update) => self.handle_user_left_room(update),
-                TuiUpdate::Text(msg) => self.handle_text_message(msg),
-                TuiUpdate::Init(data) => self.handle_init_data(data),
-                TuiUpdate::UserConnected(user) => self.handle_user_connected(user),
-                TuiUpdate::UserDisconnected(user) => self.handle_user_disconnected(user),
-                TuiUpdate::JoinRoom(res) => self.handle_join_room(res),
+            select! {
+                result = self.rx_events_tui.recv() => if let Some(e) = result {
+                    self.handle_events(e).await?
+                },
+
+                result = self.rx_ws_tui.recv() => if let Some(msg) = result {
+                    match msg{
+                        TuiUpdate::Img(img) => self.handle_img_render(img)?,
+                        TuiUpdate::Auth(data) => self.handle_auth_response(data),
+                        TuiUpdate::RegisterResponse(res) => self.handle_register_response(res),
+                        TuiUpdate::UserJoinedRoom(update) => self.handle_user_joined_room(update),
+                        TuiUpdate::UserLeftRoom(update) => self.handle_user_left_room(update),
+                        TuiUpdate::Text(msg) => self.handle_text_message(msg),
+                        TuiUpdate::Init(data) => self.handle_init_data(data),
+                        TuiUpdate::UserConnected(user) => self.handle_user_connected(user),
+                        TuiUpdate::UserDisconnected(user) => self.handle_user_disconnected(user),
+                        TuiUpdate::JoinRoom(res) => self.handle_join_room(res),
+                    }
+                },
+
             }
         }
 
         Ok(())
     }
 
-    fn handle_join_room(&mut self, res: RoomActionRes) {
+    fn handle_join_room(&mut self, res: Result<RoomData, String>) {
         match res {
             Err(msg) => self.room_creator.notification = Some(msg),
             Ok(room) => {
@@ -164,17 +166,17 @@ impl App {
 
     fn handle_register_response(&mut self, res: RegisterResponse) {
         match res {
-            Err(msg) => {
+            RegisterResponse::Err(msg) => {
                 self.login_screen_notification = Some(Notification::Failure(msg));
             }
-            Ok(user) => {
+            RegisterResponse::Ok(user) => {
                 let msg = format!("Account with username {} was created.", user.username);
                 self.login_screen_notification = Some(Notification::Success(msg));
 
                 self.password_ta_register = TextArea::default();
                 self.username_ta_register = TextArea::default();
                 self.repeat_password_ta = TextArea::default();
-                self.active_entry_screen = ActiveEntryScreen::Login;
+                self.active_entry_screen = ActiveEntryScreen::ASLogin;
                 self.active_entry_input = ActiveEntryInput::Username;
             }
         }
@@ -273,14 +275,14 @@ impl App {
         };
     }
 
-    fn listen_for_tui_events(&self) {
-        let th_runner = get_thread_runner();
-        let tx = self.tui_channel.tx.clone();
+    async fn listen_for_tui_events(&self) {
+        let tx = self.tx_events_tui.clone();
 
-        th_runner.spawn("events listener", true, move || {
+        tokio::spawn(async move {
             loop {
-                let e = event::read()?;
-                tx.send(TuiUpdate::CrosstermEvent(e))?;
+                let handle = tokio::task::spawn_blocking(|| event::read().unwrap());
+                let event = handle.await.unwrap();
+                tx.send(event).await.unwrap();
             }
         });
     }
@@ -305,6 +307,7 @@ impl App {
             THEME_GRAY_GREEN_LIGHT.1,
             THEME_GRAY_GREEN_LIGHT.2,
         )));
+
         frame.render_widget(background, frame.area());
         frame.render_widget(&mut *self, frame.area());
 
@@ -322,11 +325,11 @@ impl App {
         self.id = init.id;
     }
 
-    pub fn logout(&mut self) -> Result<()> {
+    pub async fn logout(&mut self) -> Result<()> {
         let msg = ClientServerMsg::Logout;
-        self.tx_tui_tcp_msg.send(msg)?;
+        self.tx_tui_ws_msg.send(msg).await?;
         self.active_screen = ActiveScreen::Entry;
-        self.active_entry_screen = ActiveEntryScreen::Login;
+        self.active_entry_screen = ActiveEntryScreen::ASLogin;
         self.direct_channels = vec![];
         self.room_channels = vec![];
         self.main_text_area = TextArea::default();
@@ -335,30 +338,26 @@ impl App {
         Ok(())
     }
 
-    fn handle_events(&mut self, event: Event) -> Result<()> {
+    async fn handle_events(&mut self, event: Event) -> Result<()> {
         match (
             &self.active_screen,
             self.display_file_selector,
             self.display_room_creator,
         ) {
-            (ActiveScreen::Entry, _, _) => self.handle_entry_screen_event(event)?,
-            (ActiveScreen::Main, false, false) => self.handle_main_screen_event(event)?,
-            (ActiveScreen::Main, true, _) => self.handle_file_selector_key_event(event)?,
-            (ActiveScreen::Main, _, true) => self.handle_create_room_event(event)?,
+            (ActiveScreen::Entry, _, _) => self.handle_entry_screen_event(event).await?,
+            (ActiveScreen::Main, false, false) => self.handle_main_screen_event(event).await?,
+            (ActiveScreen::Main, true, _) => self.handle_file_selector_key_event(event).await?,
+            (ActiveScreen::Main, _, true) => self.handle_create_room_event(event).await?,
         }
 
         Ok(())
     }
 
-    pub fn send_message(&mut self) -> Result<()> {
+    pub async fn send_message(&mut self) -> Result<()> {
         let id = match self.active_channel.id {
             None => return Ok(()),
             Some(id) => id,
         };
-
-        let state = get_global_state();
-        let tx_tui_tcp = state.tui_tcp_msg_channel.tx.clone();
-        drop(state);
 
         let text = self.main_text_area.lines().join("\n");
 
@@ -380,7 +379,7 @@ impl App {
 
         let msg = ClientServerMsg::Text(msg);
 
-        tx_tui_tcp.send(msg)?;
+        self.tx_tui_ws_msg.send(msg).await?;
         self.main_text_area = TextArea::default();
 
         Ok(())

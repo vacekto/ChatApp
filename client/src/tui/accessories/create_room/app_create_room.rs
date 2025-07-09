@@ -7,7 +7,7 @@ use ratatui::crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
 use shared::types::{ClientServerMsg, RoomUpdateTransit};
 
 impl App {
-    pub fn handle_create_room_event(&mut self, event: Event) -> Result<()> {
+    pub async fn handle_create_room_event(&mut self, event: Event) -> Result<()> {
         match event {
             Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
                 match key_event.code {
@@ -35,7 +35,7 @@ impl App {
                     KeyCode::Esc => self.display_room_creator = false,
                     KeyCode::Up => self.room_creator.move_active_input_up(),
                     KeyCode::Down => self.room_creator.move_active_input_down(),
-                    KeyCode::Enter => self.handle_room_submit()?,
+                    KeyCode::Enter => self.handle_room_submit().await?,
                     KeyCode::Tab => self.room_creator.switch_action(),
                     _ => {
                         if self.room_creator.active_input == ActiveCreateRoomInput::Name {
@@ -52,7 +52,7 @@ impl App {
         Ok(())
     }
 
-    pub fn handle_room_submit(&mut self) -> Result<()> {
+    pub async fn handle_room_submit(&mut self) -> Result<()> {
         let room_name = String::from(self.room_creator.room_name_ta.lines().join("").trim());
         let room_password =
             String::from(self.room_creator.room_password_ta.lines().join("").trim());
@@ -72,7 +72,7 @@ impl App {
             RoomAction::Create => ClientServerMsg::CreateRoom(transit),
             RoomAction::Join => ClientServerMsg::JoinRoom(transit),
         };
-        self.tx_tui_tcp_msg.send(msg)?;
+        self.tx_tui_ws_msg.send(msg).await.ok();
         Ok(())
     }
 }

@@ -1,31 +1,21 @@
-use super::{
-    global_states::app_state::get_global_state,
-    util::{
-        config::FILES_DIR,
-        types::{ActiveStream, TcpStreamMsg},
-    },
+use super::util::{
+    config::FILES_DIR,
+    types::{ActiveStream, WsStreamMsg},
 };
 use anyhow::Result;
 use shared::types::{Chunk, FileMetadata};
 use std::{collections::HashMap, io::Write, path::Path};
 use uuid::Uuid;
 
-pub fn handle_file_streaming() -> Result<()> {
+pub async fn handle_file_stream(
+    mut rx_ws_stream: tokio::sync::mpsc::Receiver<WsStreamMsg>,
+) -> Result<()> {
     let mut data_streams = HashMap::<Uuid, ActiveStream>::new();
-    let mut state = get_global_state();
 
-    let rx_tcp_stream = state
-        .tcp_stream_channel
-        .rx
-        .take()
-        .expect("rx_tcp_stream already taken");
-
-    drop(state);
-
-    while let Ok(msg) = rx_tcp_stream.recv() {
+    while let Some(msg) = rx_ws_stream.recv().await {
         match msg {
-            TcpStreamMsg::FileMetadata(data) => handle_file_metadata(data, &mut data_streams)?,
-            TcpStreamMsg::FileChunk(chunk) => handle_file_chunk(chunk, &mut data_streams)?,
+            WsStreamMsg::FileMetadata(data) => handle_file_metadata(data, &mut data_streams)?,
+            WsStreamMsg::FileChunk(chunk) => handle_file_chunk(chunk, &mut data_streams)?,
         }
     }
 

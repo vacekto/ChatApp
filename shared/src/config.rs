@@ -7,6 +7,4 @@ pub const PASSWORD_RE_PATTERN: &str = r"^[A-Za-z\d!@#$%^&*()_+]{8,32}$";
 pub const USERNAME_ERROR_MSG: &str = "Username must start with a letter, not contain special characters ouside of \"_\" and have length between 7 to 29";
 pub const PASSWORD_ERROR_MSG: &str = "Password must contain at least one lowercase and uppercase letter, digit and have length between 8 to 32";
 
-pub const SERVER_ADDR: &str = "localhost:11111";
-
 pub const TCP_CHUNK_BUFFER_SIZE: usize = 8192;

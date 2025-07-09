@@ -1,7 +1,9 @@
 use bytes::Bytes;
+use futures::stream::{SplitSink, SplitStream};
 use mongodb::bson::Bson;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc, oneshot};
+use tokio_tungstenite::{WebSocketStream, tungstenite::Message};
 use uuid::Uuid;
 
 use shared::types::{
@@ -163,3 +165,7 @@ pub struct DbUser {
     pub pwd: String,
     pub room_ids: Vec<Bson>,
 }
+
+pub type Ws = WebSocketStream<tokio::net::TcpStream>;
+pub type WsRead = SplitStream<Ws>;
+pub type WsWrite = SplitSink<Ws, Message>;

@@ -15,8 +15,10 @@ use uuid::Uuid;
 impl App {
     pub fn handle_auth_response(&mut self, data: AuthResponse) {
         match data {
-            Err(msg) => self.login_screen_notification = Some(Notification::Failure(msg)),
-            Ok(init) => {
+            AuthResponse::Err(msg) => {
+                self.login_screen_notification = Some(Notification::Failure(msg))
+            }
+            AuthResponse::Ok(init) => {
                 self.username = init.username;
                 self.id = init.id;
                 self.active_screen = ActiveScreen::Main;
@@ -60,7 +62,7 @@ impl App {
         }
     }
 
-    pub fn handle_main_screen_event(&mut self, event: Event) -> Result<()> {
+    pub async fn handle_main_screen_event(&mut self, event: Event) -> Result<()> {
         match event {
             Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
                 if ((key_event.code == KeyCode::Char('f'))
@@ -78,8 +80,8 @@ impl App {
                 }
 
                 match self.focus {
-                    Focus::Contacts => self.handle_contacts_event(key_event)?,
-                    Focus::Messages => self.handle_messages_event(key_event)?,
+                    Focus::Contacts => self.handle_contacts_event(key_event).await?,
+                    Focus::Messages => self.handle_messages_event(key_event).await?,
                 };
             }
             _ => {}
@@ -88,19 +90,19 @@ impl App {
         Ok(())
     }
 
-    fn handle_contacts_event(&mut self, key_event: KeyEvent) -> Result<()> {
+    async fn handle_contacts_event(&mut self, key_event: KeyEvent) -> Result<()> {
         match key_event.code {
             KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.exit()
             }
             KeyCode::Tab => self.switch_focus(),
 
-            KeyCode::Esc => self.logout()?,
+            KeyCode::Esc => self.logout().await?,
             KeyCode::Up => self.move_active_channel_up(),
             KeyCode::Down => self.move_active_channel_down(),
             KeyCode::Left => self.switch_channel_kind(),
             KeyCode::Right => self.switch_channel_kind(),
-            KeyCode::Enter => self.send_message()?,
+            KeyCode::Enter => self.send_message().await?,
             _ => {
                 self.main_text_area.input(key_event);
             }
@@ -108,15 +110,15 @@ impl App {
         Ok(())
     }
 
-    fn handle_messages_event(&mut self, key_event: KeyEvent) -> Result<()> {
+    async fn handle_messages_event(&mut self, key_event: KeyEvent) -> Result<()> {
         match key_event.code {
             KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.exit()
             }
             KeyCode::Tab => self.switch_focus(),
 
-            KeyCode::Enter => self.send_message()?,
-            KeyCode::Esc => self.logout()?,
+            KeyCode::Enter => self.send_message().await?,
+            KeyCode::Esc => self.logout().await?,
             KeyCode::Up => self.move_scrollbar_up(),
             KeyCode::Down => self.move_scrollbar_down(),
             _ => {

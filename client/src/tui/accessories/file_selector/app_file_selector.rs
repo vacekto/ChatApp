@@ -1,20 +1,19 @@
 use crate::{
-    global_states::{console_logger::console_log, thread_logger::get_thread_runner},
     tui::app::app::App,
-    util::{
-        config::TCP_CHUNK_BUFFER_SIZE,
-        types::{ChannelKind, FileAction, SelectorEntryKind},
-    },
+    util::types::{ChannelKind, FileAction, SelectorEntryKind},
 };
 use anyhow::Result;
 use image::imageops::FilterType;
 use ratatui::crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
-use shared::types::{Channel, Chunk, ClientServerMsg, FileMetadata, ImgRender, User};
+use shared::{
+    config::TCP_CHUNK_BUFFER_SIZE,
+    types::{Channel, Chunk, ClientServerMsg, FileMetadata, ImgRender, User},
+};
 use std::{io::Read, os::linux::fs::MetadataExt, path::PathBuf};
 use uuid::Uuid;
 
 impl App {
-    pub fn handle_file_selector_key_event(&mut self, event: Event) -> Result<()> {
+    pub async fn handle_file_selector_key_event(&mut self, event: Event) -> Result<()> {
         match event {
             Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
                 match key_event.code {
@@ -43,7 +42,7 @@ impl App {
                     KeyCode::Down => self.file_selector.move_down()?,
                     KeyCode::Left => self.file_selector.close_current_folder()?,
                     KeyCode::Right => self.file_selector.open_folder()?,
-                    KeyCode::Enter => self.handle_file_selector_enter()?,
+                    KeyCode::Enter => self.handle_file_selector_enter().await?,
                     _ => {
                         self.username_ta_login.input(key_event);
                     }
@@ -61,7 +60,7 @@ impl App {
         Ok(())
     }
 
-    pub fn handle_file_selector_enter(&mut self) -> Result<()> {
+    pub async fn handle_file_selector_enter(&mut self) -> Result<()> {
         let selected = &self.file_selector.entries[self.file_selector.selected_index];
 
         match (&selected.kind, &self.file_selector.active_action) {
@@ -69,7 +68,7 @@ impl App {
                 self.file_selector.current_location.push(&selected.name);
                 let path = self.file_selector.current_location.clone();
 
-                self.send_file(path);
+                self.send_file(path).await;
 
                 self.file_selector.reset_location()?;
                 self.display_file_selector = false;
@@ -86,7 +85,6 @@ impl App {
                     id: self.id,
                 };
 
-                let th = get_thread_runner();
                 let path = format!(
                     "{}/{}",
                     self.file_selector
@@ -96,10 +94,9 @@ impl App {
                         .unwrap(),
                     selected.name
                 );
-                let tx_tui_tcp_msg = self.tx_tui_tcp_msg.clone();
+                let tx_tui_ws_msg = self.tx_tui_ws_msg.clone();
 
-                th.spawn("image to ascii converter", false, move || {
-                    console_log(&format!("{path:?}"));
+                tokio::spawn(async move {
                     let image = image::open(path).expect("Failed to open image");
                     let resized = image.resize_exact(50, 70, FilterType::Nearest);
                     let conf = artem::config::ConfigBuilder::new().color(false).build();
@@ -110,9 +107,7 @@ impl App {
                         to,
                     };
                     let msg = ClientServerMsg::ASCII(img_render);
-                    tx_tui_tcp_msg.send(msg).unwrap();
-
-                    Ok(())
+                    tx_tui_ws_msg.send(msg).await.unwrap();
                 });
             }
 
@@ -128,14 +123,14 @@ impl App {
         Ok(())
     }
 
-    fn send_file(&mut self, path: PathBuf) {
+    async fn send_file(&mut self, path: PathBuf) {
         let id_to = match self.active_channel.id {
             None => return,
             Some(id) => id,
         };
 
-        let tx_tui_tcp_msg = self.tx_tui_tcp_msg.clone();
-        let tx_tui_tcp_file = self.tx_tui_tcp_file.clone();
+        let tx_tui_ws_msg = self.tx_tui_ws_msg.clone();
+        let tx_tui_ws_file = self.tx_tui_ws_file.clone();
 
         let id_from = self.id;
         let username = self.username.clone();
@@ -150,11 +145,17 @@ impl App {
             ChannelKind::Room => Channel::Room(id_to),
         };
 
-        let th_runner = get_thread_runner();
+        tokio::spawn(async move {
+            let mut file = match std::fs::File::open(&path) {
+                Ok(f) => f,
+                Err(_) => return,
+            };
 
-        th_runner.spawn("file transmitter", false, move || {
-            let mut file = std::fs::File::open(&path)?;
-            let meta = file.metadata()?;
+            let meta = match file.metadata() {
+                Ok(meta) => meta,
+                Err(_) => return,
+            };
+
             let stream_id = Uuid::new_v4();
             let mut buffer = [0u8; TCP_CHUNK_BUFFER_SIZE];
 
@@ -167,10 +168,13 @@ impl App {
             };
 
             let metadata = ClientServerMsg::FileMetadata(meta);
-            tx_tui_tcp_msg.send(metadata)?;
+            tx_tui_ws_msg.send(metadata).await.ok();
 
             loop {
-                let n = file.read(&mut buffer)?;
+                let n = match file.read(&mut buffer) {
+                    Ok(f) => f,
+                    Err(_) => return,
+                };
                 if n == 0 {
                     break;
                 }
@@ -183,9 +187,8 @@ impl App {
                     to: to.clone(),
                     stream_id,
                 };
-                tx_tui_tcp_file.send(chunk)?;
+                tx_tui_ws_file.send(chunk).await.ok();
             }
-            Ok(())
         });
     }
 }

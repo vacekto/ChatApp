@@ -8,8 +8,8 @@ use thiserror::Error;
 pub struct BincodeErr(pub Box<bincode::ErrorKind>, pub Bt);
 
 #[derive(Error, Debug)]
-#[error("Failed to read or write framed message via TCP stream, actual error: {0}{1}")]
-pub struct TcpErr(pub std::io::Error, pub Bt);
+#[error("Failed to read or write framed message via web socket, actual error: {0}{1}")]
+pub struct WsErr(pub tokio_tungstenite::tungstenite::Error, pub Bt);
 
 #[derive(Error, Debug)]
 #[error("{}", self.location)]
@@ -24,7 +24,7 @@ impl Bt {
         }
     }
 
-    // compactly writes out location where the Bt::new constructor was called
+    /// compactly writes out file and line location where the Bt::new constructor was called
     fn get_location() -> String {
         let bt = Backtrace::new();
 

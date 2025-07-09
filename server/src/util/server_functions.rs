@@ -2,46 +2,46 @@ use super::types::{
     server_data_types::{
         AuthTransit, ClientManagerMsg, ClientPersistenceMsg, IsOnlineTransit, RegisterDataTransit,
     },
-    server_error_types::{BincodeErr, Bt, TcpErr},
-    server_error_wrapper_types::TcpDataParsingError,
+    server_error_types::{BincodeErr, Bt, WsErr},
+    server_error_wrapper_types::WsDataParsingError,
 };
+use crate::util::types::server_data_types::{WsRead, WsWrite};
 use anyhow::{Result, anyhow};
+use bincode::deserialize;
+use futures::{SinkExt, StreamExt};
+use mongodb::bson::{Binary, Bson, spec::BinarySubtype};
 use shared::types::{
     AuthData, AuthResponse, ClientServerConnectMsg, RegisterData, RegisterResponse, ServerClientMsg,
 };
-
-use futures::{SinkExt, StreamExt};
-use mongodb::bson::{Binary, Bson, spec::BinarySubtype};
-use tokio::{
-    net::tcp::{OwnedReadHalf, OwnedWriteHalf},
-    sync::{mpsc, oneshot},
-};
-use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
+use tokio::sync::{mpsc, oneshot};
+use tokio_tungstenite::tungstenite::Message;
 use uuid::Uuid;
 
 pub async fn send_server_msg<'a>(
     msg: &ServerClientMsg,
-    tcp_write: &'a mut FramedWrite<OwnedWriteHalf, LengthDelimitedCodec>,
-) -> Result<(), TcpDataParsingError> {
+    ws_write: &'a mut WsWrite,
+) -> Result<(), WsDataParsingError> {
     let serialized = bincode::serialize(msg).map_err(|err| BincodeErr(err, Bt::new()))?;
-    tcp_write
+    ws_write
         .send(serialized.into())
         .await
-        .map_err(|err| TcpErr(err, Bt::new()))?;
+        .map_err(|err| WsErr(err, Bt::new()))?;
 
     Ok(())
 }
 
 pub async fn read_client_data<'a>(
-    tcp_read: &'a mut FramedRead<OwnedReadHalf, LengthDelimitedCodec>,
-) -> Result<ClientServerConnectMsg, TcpDataParsingError> {
-    let auth_bytes = match tcp_read.next().await {
-        Some(res) => res.map_err(|err| TcpErr(err, Bt::new()))?,
-        None => Err(TcpDataParsingError::ConnectionClosed)?,
+    ws_read: &'a mut WsRead,
+) -> Result<ClientServerConnectMsg, WsDataParsingError> {
+    let ws_msg = match ws_read.next().await {
+        Some(res) => res.map_err(|err| WsErr(err, Bt::new()))?,
+        None => Err(WsDataParsingError::ConnectionClosed)?,
     };
 
-    let auth_data: ClientServerConnectMsg =
-        bincode::deserialize(&auth_bytes).map_err(|err| BincodeErr(err, Bt::new()))?;
+    let auth_data = match ws_msg {
+        Message::Binary(bytes) => deserialize(&bytes).map_err(|err| BincodeErr(err, Bt::new()))?,
+        _ => unreachable!(),
+    };
 
     Ok(auth_data)
 }
