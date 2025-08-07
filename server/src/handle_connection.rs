@@ -8,7 +8,7 @@ use crate::{
 };
 use anyhow::{Result, anyhow};
 use futures::StreamExt;
-use shared::types::{AuthResponse, ClientServerConnectMsg, ServerClientMsg};
+use shared::types::{AuthResponse, ClientServerAuthMsg, ServerClientMsg};
 use tokio::sync::mpsc;
 
 pub async fn handle_connection<'a>(
@@ -28,7 +28,7 @@ pub async fn handle_connection<'a>(
         };
 
         let user = match client_msg {
-            ClientServerConnectMsg::Register(register_data) => {
+            ClientServerAuthMsg::Register(register_data) => {
                 let res =
                     handle_register(register_data, &tx_client_persistence, &tx_client_manager)
                         .await?;
@@ -37,7 +37,7 @@ pub async fn handle_connection<'a>(
                 send_server_msg(&msg, &mut wss_write).await?;
                 continue;
             }
-            ClientServerConnectMsg::Login(auth_data) => {
+            ClientServerAuthMsg::Login(auth_data) => {
                 let res =
                     authenticate(auth_data, &tx_client_persistence, &tx_client_manager).await?;
 

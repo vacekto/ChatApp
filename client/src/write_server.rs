@@ -1,6 +1,6 @@
 use anyhow::Result;
 use futures::SinkExt;
-use shared::types::{Chunk, ClientServerConnectMsg, ClientServerMsg};
+use shared::types::{Chunk, ClientServerAuthMsg, ClientServerMsg};
 use tokio::select;
 
 use crate::util::types::WsWrite;
@@ -9,7 +9,7 @@ pub async fn write_to_server(
     mut ws: WsWrite,
     mut rx_tui_ws_msg: tokio::sync::mpsc::Receiver<ClientServerMsg>,
     mut rx_tui_ws_file: tokio::sync::mpsc::Receiver<Chunk>,
-    mut rx_tui_ws_auth: tokio::sync::mpsc::Receiver<ClientServerConnectMsg>,
+    mut rx_tui_ws_auth: tokio::sync::mpsc::Receiver<ClientServerAuthMsg>,
 ) -> Result<()> {
     loop {
         if let Ok(msg) = rx_tui_ws_msg.try_recv() {

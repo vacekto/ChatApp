@@ -1,12 +1,10 @@
 use crate::{
-    global_states::app_state::get_global_state,
     tui::app::app::App,
     util::types::{
         ActiveEntryInput::{Password, RepeatPassword, Username},
-        ActiveEntryScreen::{Login, Register},
+        ActiveEntryScreen::{ASLogin, ASRegister},
         Notification,
     },
-    write_server::frame_data,
 };
 
 use anyhow::Result;
@@ -14,24 +12,23 @@ use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModif
 use regex::Regex;
 use shared::{
     config::{PASSWORD_ERROR_MSG, PASSWORD_RE_PATTERN, USERNAME_ERROR_MSG, USERNAME_RE_PATTERN},
-    types::{AuthData, ClientServerConnectMsg, RegisterData},
+    types::{AuthData, ClientServerAuthMsg, RegisterData},
 };
-use std::io::Write;
 
 impl App {
     fn switch_entry_screen(&mut self) {
         self.active_entry_screen = match self.active_entry_screen {
-            Login => Register,
-            Register => {
+            ASLogin => ASRegister,
+            ASRegister => {
                 if self.active_entry_input == RepeatPassword {
                     self.active_entry_input = Username;
                 }
-                Login
+                ASLogin
             }
         };
     }
 
-    pub fn handle_entry_screen_event(&mut self, event: Event) -> Result<()> {
+    pub async fn handle_entry_screen_event(&mut self, event: Event) -> Result<()> {
         match event {
             Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
                 match key_event.code {
@@ -40,7 +37,7 @@ impl App {
                     }
                     KeyCode::Tab => self.switch_entry_screen(),
                     KeyCode::Esc => self.exit(),
-                    KeyCode::Enter => self.handle_entry_enter()?,
+                    KeyCode::Enter => self.handle_entry_enter().await?,
                     KeyCode::Up => self.move_active_input_up(),
                     KeyCode::Down => self.move_active_input_down(),
 
@@ -55,70 +52,70 @@ impl App {
 
     fn handle_input_event(&mut self, key_event: KeyEvent) {
         match (&self.active_entry_screen, &self.active_entry_input) {
-            (Login, Username) => self.username_ta_login.input(key_event),
-            (Login, Password) => self.password_ta_login.input(key_event),
-            (Login, RepeatPassword) => unreachable!(),
-            (Register, Username) => self.username_ta_register.input(key_event),
-            (Register, Password) => self.password_ta_register.input(key_event),
-            (Register, RepeatPassword) => self.repeat_password_ta.input(key_event),
+            (ASLogin, Username) => self.username_ta_login.input(key_event),
+            (ASLogin, Password) => self.password_ta_login.input(key_event),
+            (ASLogin, RepeatPassword) => unreachable!(),
+            (ASRegister, Username) => self.username_ta_register.input(key_event),
+            (ASRegister, Password) => self.password_ta_register.input(key_event),
+            (ASRegister, RepeatPassword) => self.repeat_password_ta.input(key_event),
         };
     }
 
     fn move_active_input_up(&mut self) {
         self.active_entry_input = match (&self.active_entry_screen, &self.active_entry_input) {
-            (Login, Username) => Username,
-            (Login, Password) => Username,
-            (Login, RepeatPassword) => unreachable!(),
-            (Register, Username) => Username,
-            (Register, Password) => Username,
-            (Register, RepeatPassword) => Password,
+            (ASLogin, Username) => Username,
+            (ASLogin, Password) => Username,
+            (ASLogin, RepeatPassword) => unreachable!(),
+            (ASRegister, Username) => Username,
+            (ASRegister, Password) => Username,
+            (ASRegister, RepeatPassword) => Password,
         };
     }
 
     fn move_active_input_down(&mut self) {
         self.active_entry_input = match (&self.active_entry_screen, &self.active_entry_input) {
-            (Login, Username) => Password,
-            (Login, Password) => Password,
-            (Login, RepeatPassword) => unreachable!(),
-            (Register, Username) => Password,
-            (Register, Password) => RepeatPassword,
-            (Register, RepeatPassword) => RepeatPassword,
+            (ASLogin, Username) => Password,
+            (ASLogin, Password) => Password,
+            (ASLogin, RepeatPassword) => unreachable!(),
+            (ASRegister, Username) => Password,
+            (ASRegister, Password) => RepeatPassword,
+            (ASRegister, RepeatPassword) => RepeatPassword,
         };
     }
 
-    fn handle_entry_enter(&mut self) -> Result<()> {
+    async fn handle_entry_enter(&mut self) -> Result<()> {
         match self.active_entry_screen {
-            Login => self.handle_auth()?,
-            Register => self.handle_register()?,
+            ASLogin => self.handle_auth().await?,
+            ASRegister => self.handle_register().await?,
         };
 
         Ok(())
     }
 
-    fn handle_auth(&mut self) -> Result<()> {
+    async fn handle_auth(&mut self) -> Result<()> {
         let username = String::from(self.username_ta_login.lines().join("").trim());
-        let password = String::from(self.password_ta_login.lines().join("").trim());
+        let pwd = String::from(self.password_ta_login.lines().join("").trim());
 
-        if let Err(msg) = self.validate_login(&username, &password) {
+        if let Err(msg) = self.validate_login(&username, &pwd) {
             self.login_screen_notification = Some(Notification::Failure(msg));
             return Ok(());
         };
 
-        let mut state = get_global_state();
-        let data = AuthData {
-            username,
-            pwd: password,
-        };
+        // let mut state = get_global_state();
 
-        let msg = ClientServerConnectMsg::Login(data);
-        let serialized = bincode::serialize(&msg)?;
-        let framed = frame_data(&serialized);
-        state.tcp.write_all(&framed)?;
+        let data = AuthData { username, pwd };
+
+        let msg = ClientServerAuthMsg::Login(data);
+        // const true_msg = ClientServerMsg::
+        self.tx_tui_ws_auth.send(msg).await?;
+        // let serialized = bincode::serialize(&msg)?;
+        // let framed = frame_data(&serialized);
+        // state.tcp.write_all(&framed)?;
 
         Ok(())
     }
 
-    fn handle_register(&mut self) -> Result<()> {
+    async fn handle_register(&mut self) -> Result<()> {
         let username = String::from(self.username_ta_register.lines().join("\n").trim());
         let password = String::from(self.password_ta_register.lines().join("\n").trim());
         let repeat_password = String::from(self.repeat_password_ta.lines().join("\n").trim());
@@ -128,16 +125,17 @@ impl App {
             return Ok(());
         };
 
-        let mut state = get_global_state();
+        // let mut state = get_global_state();
 
         let data = RegisterData {
             username,
             pwd: password,
         };
-        let msg = ClientServerConnectMsg::Register(data);
-        let serialized = bincode::serialize(&msg)?;
-        let framed = frame_data(&serialized);
-        state.tcp.write_all(&framed)?;
+        let msg = ClientServerAuthMsg::Register(data);
+        self.tx_tui_ws_auth.send(msg).await?;
+        // let serialized = bincode::serialize(&msg)?;
+        // let framed = frame_data(&serialized);
+        // state.tcp.write_all(&framed)?;
 
         Ok(())
     }

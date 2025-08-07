@@ -5,7 +5,7 @@ use client::{
 };
 use dotenv::dotenv;
 use futures::StreamExt;
-use shared::types::{Chunk, ClientServerConnectMsg, ClientServerMsg};
+use shared::types::{Chunk, ClientServerAuthMsg, ClientServerMsg};
 use tokio_tungstenite::connect_async;
 
 #[tokio::main]
@@ -26,7 +26,7 @@ async fn main() -> Result<()> {
     let (tx_ws_stream, rx_ws_stream) = tokio::sync::mpsc::channel(20);
     let (tx_tui_ws_file, rx_tui_ws_file) = tokio::sync::mpsc::channel::<Chunk>(1000);
     let (tx_tui_ws_msg, rx_tui_ws_msg) = tokio::sync::mpsc::channel::<ClientServerMsg>(20);
-    let (tx_tui_ws_auth, rx_tui_ws_auth) = tokio::sync::mpsc::channel::<ClientServerConnectMsg>(20);
+    let (tx_tui_ws_auth, rx_tui_ws_auth) = tokio::sync::mpsc::channel::<ClientServerAuthMsg>(20);
 
     tokio::spawn(async move {
         handle_file_stream(rx_ws_stream).await.ok();

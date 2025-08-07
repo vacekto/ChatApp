@@ -1,3 +1,26 @@
+use anyhow::{Result, bail};
+use ratatui::{
+    DefaultTerminal, Frame,
+    crossterm::event::{self, Event},
+    style::{Color, Style},
+    widgets::Paragraph,
+};
+use shared::{
+    config::PUBLIC_ROOM_ID,
+    types::{
+        Channel, ChannelMsg, Chunk, ClientServerAuthMsg, ClientServerMsg, DirectChannel, ImgRender,
+        JoinRoomNotification, LeaveRoomNotification, RegisterResponse, RoomData, TextMsg, TuiRoom,
+        User, UserInitData,
+    },
+};
+use std::{
+    collections::{HashMap, VecDeque},
+    str::FromStr,
+};
+use tokio::select;
+use tui_textarea::TextArea;
+use uuid::Uuid;
+
 use crate::{
     tui::accessories::{
         create_room::create_room::RoomCreator, file_selector::file_selector::FileSelector,
@@ -10,28 +33,6 @@ use crate::{
         },
     },
 };
-use anyhow::{Result, bail};
-use ratatui::{
-    DefaultTerminal, Frame,
-    crossterm::event::{self, Event},
-    style::{Color, Style},
-    widgets::Paragraph,
-};
-use shared::{
-    config::PUBLIC_ROOM_ID,
-    types::{
-        Channel, ChannelMsg, Chunk, ClientServerConnectMsg, ClientServerMsg, DirectChannel,
-        ImgRender, JoinRoomNotification, LeaveRoomNotification, RegisterResponse, RoomData,
-        TextMsg, TuiRoom, User, UserInitData,
-    },
-};
-use std::{
-    collections::{HashMap, VecDeque},
-    str::FromStr,
-};
-use tokio::select;
-use tui_textarea::TextArea;
-use uuid::Uuid;
 
 pub struct App {
     pub username: String,
@@ -63,7 +64,7 @@ pub struct App {
     pub rx_ws_tui: tokio::sync::mpsc::Receiver<TuiUpdate>,
     pub tx_events_tui: tokio::sync::mpsc::Sender<Event>,
     pub rx_events_tui: tokio::sync::mpsc::Receiver<Event>,
-    pub tx_tui_ws_auth: tokio::sync::mpsc::Sender<ClientServerConnectMsg>,
+    pub tx_tui_ws_auth: tokio::sync::mpsc::Sender<ClientServerAuthMsg>,
 }
 
 impl App {
@@ -71,7 +72,7 @@ impl App {
         rx_ws_tui: tokio::sync::mpsc::Receiver<TuiUpdate>,
         tx_tui_ws_file: tokio::sync::mpsc::Sender<Chunk>,
         tx_tui_ws_msg: tokio::sync::mpsc::Sender<ClientServerMsg>,
-        tx_tui_ws_auth: tokio::sync::mpsc::Sender<ClientServerConnectMsg>,
+        tx_tui_ws_auth: tokio::sync::mpsc::Sender<ClientServerAuthMsg>,
     ) -> Self {
         let (tx_events_tui, rx_events_tui) = tokio::sync::mpsc::channel(20);
         App {

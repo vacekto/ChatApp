@@ -11,7 +11,7 @@ use bincode::deserialize;
 use futures::{SinkExt, StreamExt};
 use mongodb::bson::{Binary, Bson, spec::BinarySubtype};
 use shared::types::{
-    AuthData, AuthResponse, ClientServerConnectMsg, RegisterData, RegisterResponse, ServerClientMsg,
+    AuthData, AuthResponse, ClientServerAuthMsg, RegisterData, RegisterResponse, ServerClientMsg,
 };
 use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::tungstenite::Message;
@@ -32,7 +32,7 @@ pub async fn send_server_msg<'a>(
 
 pub async fn read_client_data<'a>(
     ws_read: &'a mut WsRead,
-) -> Result<ClientServerConnectMsg, WsDataParsingError> {
+) -> Result<ClientServerAuthMsg, WsDataParsingError> {
     let ws_msg = match ws_read.next().await {
         Some(res) => res.map_err(|err| WsErr(err, Bt::new()))?,
         None => Err(WsDataParsingError::ConnectionClosed)?,

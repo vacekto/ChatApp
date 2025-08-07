@@ -145,7 +145,7 @@ pub type AuthResponse = Result<User, String>;
 pub type RegisterResponse = Result<User, String>;
 
 #[derive(Deserialize, Serialize, Debug)]
-pub enum ClientServerConnectMsg {
+pub enum ClientServerAuthMsg {
     Login(AuthData),
     Register(RegisterData),
 }
