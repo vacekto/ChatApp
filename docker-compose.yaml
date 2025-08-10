@@ -2,8 +2,8 @@ services:
   server:
     restart: always
     build:
-      context: ./
-      dockerfile: server/Dockerfile
+      context: ./server
+      dockerfile: Dockerfile
     container_name: "chat_app"
     ports:
       - ${SERVER_PORT}:${SERVER_PORT}
@@ -11,6 +11,21 @@ services:
     environment:
       SERVER_PORT: "${SERVER_PORT}"
       DB_URL: "mongodb://mongo:27017/chatapp"
+
+  browser_pty:
+    restart: always
+    build:
+      context: ./browser_pty
+      dockerfile: Dockerfile
+    container_name: "browser_pty"
+    ports:
+      - ${BROWSER_PTY_PORT}:${BROWSER_PTY_PORT}
+    environment:
+      SERVER_PORT: "${SERVER_PORT}"
+      # DB_URL: ${DB_URL}
+      DB_URL: "mongodb://mongo:27017/chatapp"
+      SERVER_HOST: "server"
+      BROWSER_PTY_PORT: ${BROWSER_PTY_PORT}
 
   mongo:
     image: mongo

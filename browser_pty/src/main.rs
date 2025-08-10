@@ -3,6 +3,7 @@ use anyhow::Result;
 use dotenv::dotenv;
 use futures::{SinkExt, StreamExt};
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
+use std::env::var;
 use std::io::{Read, Write};
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
@@ -13,8 +14,12 @@ pub mod util;
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenv().ok();
+    let port: u16 = var("BROWSER_PTY_PORT")?.parse()?;
+
     let index = warp::path::end().and(warp::fs::file("static/index.html"));
     let static_files = warp::path("static").and(warp::fs::dir("static/"));
+
+    let http_route = warp::path("health").map(|| "OK");
 
     let ws_route = warp::path("ws").and(warp::ws()).map(|ws: warp::ws::Ws| {
         ws.on_upgrade(|ws| async {
@@ -24,10 +29,9 @@ async fn main() -> Result<()> {
         })
     });
 
-    let routes = index.or(static_files).or(ws_route);
-
-    println!("Server running at http://localhost:4200`");
-    warp::serve(routes).run(([127, 0, 0, 1], 4200)).await;
+    let routes = index.or(static_files).or(ws_route).or(http_route);
+    println!("Server running on 0.0.0.0:{}", port);
+    warp::serve(routes).run(([0, 0, 0, 0], port)).await;
 
     Ok(())
 }
@@ -66,10 +70,16 @@ pub async fn handle_ws(ws: WebSocket) -> Result<(), HandlerError> {
     tokio::task::spawn_blocking(move || {
         let mut buf = [0u8; 512];
 
-        while let Ok(n) = pty_reader.read(&mut buf)
-            && n != 0
-            && pty_out_tx.send(buf[..n].to_vec()).is_ok()
-        {}
+        loop {
+            let n = match pty_reader.read(&mut buf) {
+                Ok(n) if n > 0 => n,
+                _ => break,
+            };
+
+            if pty_out_tx.send(buf[..n].to_vec()).is_err() {
+                break;
+            }
+        }
     });
 
     tokio::spawn(async move {

@@ -56,14 +56,12 @@
       socket.binaryType = "arraybuffer";
 
       term.onData((data) => {
-        console.log("Sending:", data);
         const encoder = new TextEncoder();
         const encoded = encoder.encode(data);
         socket.send(encoded);
       });
 
       socket.onmessage = function (event) {
-        console.log("receiving");
         const data = new Uint8Array(event.data);
         term.write(data);
       };

@@ -1,0 +1,22 @@
+FROM rust:1.87-alpine AS builder
+
+RUN apk add --no-cache musl-dev build-base
+
+WORKDIR /app
+COPY . .
+COPY static ../static
+COPY assets ../assets
+
+RUN rustup target add x86_64-unknown-linux-musl
+RUN cargo build --release --target x86_64-unknown-linux-musl --bin browser_pty
+RUN strip /app/target/x86_64-unknown-linux-musl/release/browser_pty
+
+FROM alpine AS runtime
+
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/browser_pty /usr/local/bin/browser_pty
+COPY --from=builder /app/static ./static
+COPY --from=builder /app/assets ./assets
+
+CMD ["browser_pty"]
+
+
