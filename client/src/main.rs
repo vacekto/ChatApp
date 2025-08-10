@@ -12,11 +12,10 @@ use tokio_tungstenite::connect_async;
 async fn main() -> Result<()> {
     dotenv().ok();
 
-    let server_addr = format!(
-        "ws://{}:{}/ws",
-        std::env::var("SERVER_HOST")?,
-        std::env::var("SERVER_PORT")?
-    );
+    let server_host = std::env::var("SERVER_HOST")?;
+    let server_port = std::env::var("SERVER_PORT")?;
+
+    let server_addr = format!("ws://localhost:{}/server", server_port);
 
     let (ws, _) = connect_async(server_addr).await.expect("Failed to connect");
     let (ws_write, ws_read) = ws.split();

@@ -1,4 +1,4 @@
 [workspace]
-members = ["shared", "server", "client", "browser_pty"]
+members = ["shared", "server", "client"]
 
 resolver = "3"

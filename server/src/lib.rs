@@ -1,3 +1,4 @@
+pub mod browser_pty;
 pub mod client_task;
 pub mod handle_connection;
 pub mod manager_task;

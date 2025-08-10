@@ -42,7 +42,7 @@ impl App {
                     KeyCode::Down => self.file_selector.move_down()?,
                     KeyCode::Left => self.file_selector.close_current_folder()?,
                     KeyCode::Right => self.file_selector.open_folder()?,
-                    KeyCode::Enter => self.handle_file_selector_enter().await?,
+                    // KeyCode::Enter => self.handle_file_selector_enter().await?,
                     _ => {
                         self.username_ta_login.input(key_event);
                     }

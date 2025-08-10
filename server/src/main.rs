@@ -1,6 +1,7 @@
 use dotenv::dotenv;
 use log::{error, info};
 use server::{
+    browser_pty::server::handle_ws,
     handle_connection::handle_connection,
     manager_task::spawn_manager_task,
     persistence_task::spawn_persistence_task,
@@ -17,7 +18,7 @@ use warp::Filter;
 async fn main() -> Result<(), Box<dyn Error>> {
     dotenv().ok();
 
-    let port: u16 = var("SERVER_PORT")?.parse()?;
+    let port: u16 = var("PORT")?.parse()?;
 
     env_logger::Builder::from_default_env()
         .filter_level(log::LevelFilter::Info)
@@ -36,12 +37,25 @@ async fn main() -> Result<(), Box<dyn Error>> {
     spawn_manager_task(rx_client_manager);
     spawn_persistence_task(rx_client_persistence);
 
+    let index = warp::path::end().and(warp::fs::file("server/static/index.html"));
+    let static_files = warp::path("static").and(warp::fs::dir("server/static/"));
+
     let tx_cm_filter = warp::any().map(move || tx_client_manager.clone());
     let tx_cp_filter = warp::any().map(move || tx_client_persistence.clone());
 
-    let http_route = warp::path("health").map(|| "OK");
+    let http_health = warp::path("health").map(|| "OK");
 
-    let ws_route = warp::path("ws")
+    let browser_pty_route = warp::path("client")
+        .and(warp::ws())
+        .map(|ws: warp::ws::Ws| {
+            ws.on_upgrade(|ws| async {
+                if let Err(err) = handle_ws(ws).await {
+                    println!("{err}");
+                }
+            })
+        });
+
+    let server_route = warp::path("server")
         .and(warp::ws())
         .and(tx_cm_filter)
         .and(tx_cp_filter)
@@ -53,9 +67,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
             })
         });
 
-    let routes = ws_route.or(http_route);
+    let routes = index
+        .or(static_files)
+        .or(server_route)
+        .or(http_health)
+        .or(browser_pty_route);
 
-    warp::serve(routes).run(([0, 0, 0, 0], port)).await;
+    println!("Server running on 0.0.0.0:{}", port);
+
+    warp::serve(routes).run(([127, 0, 0, 1], port)).await;
 
     Ok(())
 }
