@@ -11,10 +11,9 @@ use tokio_tungstenite::connect_async;
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenv().ok();
-    // initialize_console_logger();
 
     let server_addr = format!(
-        "ws://{}:{}",
+        "ws://{}:{}/ws",
         std::env::var("SERVER_HOST")?,
         std::env::var("SERVER_PORT")?
     );

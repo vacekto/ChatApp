@@ -33,8 +33,8 @@ use tokio::{
     },
     task,
 };
-use tokio_tungstenite::tungstenite::Message;
 use uuid::Uuid;
+use warp::filters::ws::Message;
 
 pub struct ClientTask<'a> {
     username: String,
@@ -274,7 +274,8 @@ impl<'a> ClientTask<'a> {
                         }
                     };
 
-                    if let Err(err) = self.ws_write.send(result.into()).await{
+
+                    if let Err(err) = self.ws_write.send(Message::binary(result)).await{
                         error!("Error writing data to TCP, :{}",err);
                         break ClientTaskResult::Close;
                     };
@@ -345,7 +346,7 @@ impl<'a> ClientTask<'a> {
     async fn send_to_client(&mut self, msg: ServerClientMsg) -> Result<(), WsDataParsingError> {
         let serialized = bincode::serialize(&msg).map_err(|err| BincodeErr(err, Bt::new()))?;
         self.ws_write
-            .send(serialized.into())
+            .send(Message::binary(serialized))
             .map_err(|err| WsErr(err, Bt::new()))
             .await?;
         Ok(())
@@ -353,18 +354,17 @@ impl<'a> ClientTask<'a> {
 
     async fn handle_ws_msg(
         &mut self,
-        result: Option<Result<Message, tokio_tungstenite::tungstenite::Error>>,
+        result: Option<Result<warp::ws::Message, warp::Error>>,
     ) -> Result<(), WsDataParsingError> {
         match result {
             Some(frame) => {
                 let ws_msg = frame.map_err(|err| WsErr(err, Bt::new()))?;
 
-                let message: ClientServerMsg = match ws_msg {
-                    Message::Binary(bytes) => {
-                        deserialize(&bytes).map_err(|err| BincodeErr(err, Bt::new()))?
-                    }
-                    _ => unreachable!(),
-                };
+                let bytes = ws_msg.as_bytes();
+                // deserialize(&bytes).map_err(|err| BincodeErr(err, Bt::new()))?;
+
+                let message: ClientServerMsg =
+                    deserialize(&bytes).map_err(|err| BincodeErr(err, Bt::new()))?;
 
                 match message {
                     ClientServerMsg::ASCII(img) => {

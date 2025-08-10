@@ -6,33 +6,29 @@ use server::{
     persistence_task::spawn_persistence_task,
     util::{
         config::{CLIENT_MANAGER_CAPACITY, CLIENT_PERSISTENCE_CAPACITY},
-        types::{
-            server_data_types::{ClientManagerMsg, ClientPersistenceMsg},
-            server_error_types::Bt,
-        },
+        types::server_data_types::{ClientManagerMsg, ClientPersistenceMsg},
     },
 };
 use std::{env::var, error::Error};
-use tokio::net::TcpListener;
-use tokio::{sync::mpsc, task};
+use tokio::sync::mpsc;
+use warp::Filter;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     dotenv().ok();
-    let server_addr = format!("0.0.0.0:{}", var("SERVER_PORT").unwrap());
+
+    let port: u16 = var("SERVER_PORT")?.parse()?;
 
     env_logger::Builder::from_default_env()
         .filter_level(log::LevelFilter::Info)
         .init();
 
-    let listener = TcpListener::bind(&server_addr)
-        .await
-        .expect("Tcp listerner failed");
-
-    info!("listening on: {}", server_addr);
+    info!("listening on: 0.0.0.0:{}", port);
 
     let (tx_client_manager, rx_client_manager) =
         mpsc::channel::<ClientManagerMsg>(CLIENT_MANAGER_CAPACITY);
+
+    let _t = tx_client_manager.clone();
 
     let (tx_client_persistence, rx_client_persistence) =
         mpsc::channel::<ClientPersistenceMsg>(CLIENT_PERSISTENCE_CAPACITY);
@@ -40,24 +36,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
     spawn_manager_task(rx_client_manager);
     spawn_persistence_task(rx_client_persistence);
 
-    loop {
-        match listener.accept().await {
-            Ok((tcp, _)) => {
-                let tx_client_manager = tx_client_manager.clone();
-                let tx_client_persistence = tx_client_persistence.clone();
-                let ws = tokio_tungstenite::accept_async(tcp)
-                    .await
-                    .expect("Error during the websocket handshake occurred");
+    let tx_cm_filter = warp::any().map(move || tx_client_manager.clone());
+    let tx_cp_filter = warp::any().map(move || tx_client_persistence.clone());
 
-                task::spawn(async move {
-                    if let Err(err) =
-                        handle_connection(ws, tx_client_manager, tx_client_persistence).await
-                    {
-                        error!("closing connection due to: {err}");
-                    };
-                });
-            }
-            Err(err) => error!("Error establishing connection: {}, {}", err, Bt::new()),
-        }
-    }
+    let http_route = warp::path("health").map(|| "OK");
+
+    let ws_route = warp::path("ws")
+        .and(warp::ws())
+        .and(tx_cm_filter)
+        .and(tx_cp_filter)
+        .map(|ws: warp::ws::Ws, tx_cm, tx_cp| {
+            ws.on_upgrade(move |ws| async move {
+                if let Err(err) = handle_connection(ws, tx_cm, tx_cp).await {
+                    error!("closing connection due to: {err}");
+                }
+            })
+        });
+
+    let routes = ws_route.or(http_route);
+
+    warp::serve(routes).run(([0, 0, 0, 0], port)).await;
+
+    Ok(())
 }

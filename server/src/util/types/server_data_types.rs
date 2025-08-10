@@ -3,13 +3,15 @@ use futures::stream::{SplitSink, SplitStream};
 use mongodb::bson::Bson;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc, oneshot};
-use tokio_tungstenite::{WebSocketStream, tungstenite::Message};
+
+use tokio_tungstenite::WebSocketStream;
 use uuid::Uuid;
 
 use shared::types::{
     AuthData, AuthResponse, CreateRoomRes, RegisterData, RegisterResponse, RoomData, User,
     UserInitData,
 };
+use warp::filters::ws::WebSocket;
 
 #[derive(Debug)]
 pub struct DirectChannelTransitPayload {
@@ -167,5 +169,5 @@ pub struct DbUser {
 }
 
 pub type Ws = WebSocketStream<tokio::net::TcpStream>;
-pub type WsRead = SplitStream<Ws>;
-pub type WsWrite = SplitSink<Ws, Message>;
+pub type WsRead = SplitStream<WebSocket>;
+pub type WsWrite = SplitSink<WebSocket, warp::ws::Message>;

@@ -14,8 +14,8 @@ use shared::types::{
     AuthData, AuthResponse, ClientServerAuthMsg, RegisterData, RegisterResponse, ServerClientMsg,
 };
 use tokio::sync::{mpsc, oneshot};
-use tokio_tungstenite::tungstenite::Message;
 use uuid::Uuid;
+use warp::filters::ws::Message;
 
 pub async fn send_server_msg<'a>(
     msg: &ServerClientMsg,
@@ -23,7 +23,7 @@ pub async fn send_server_msg<'a>(
 ) -> Result<(), WsDataParsingError> {
     let serialized = bincode::serialize(msg).map_err(|err| BincodeErr(err, Bt::new()))?;
     ws_write
-        .send(serialized.into())
+        .send(Message::binary(serialized))
         .await
         .map_err(|err| WsErr(err, Bt::new()))?;
 
@@ -38,10 +38,9 @@ pub async fn read_client_data<'a>(
         None => Err(WsDataParsingError::ConnectionClosed)?,
     };
 
-    let auth_data = match ws_msg {
-        Message::Binary(bytes) => deserialize(&bytes).map_err(|err| BincodeErr(err, Bt::new()))?,
-        _ => unreachable!(),
-    };
+    let bytes = ws_msg.as_bytes();
+
+    let auth_data = deserialize(&bytes).map_err(|err| BincodeErr(err, Bt::new()))?;
 
     Ok(auth_data)
 }

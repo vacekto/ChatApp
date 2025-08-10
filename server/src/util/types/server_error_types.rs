@@ -9,7 +9,7 @@ pub struct BincodeErr(pub Box<bincode::ErrorKind>, pub Bt);
 
 #[derive(Error, Debug)]
 #[error("Failed to read or write framed message via web socket, actual error: {0}{1}")]
-pub struct WsErr(pub tokio_tungstenite::tungstenite::Error, pub Bt);
+pub struct WsErr(pub warp::Error, pub Bt);
 
 #[derive(Error, Debug)]
 #[error("{}", self.location)]
