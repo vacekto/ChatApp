@@ -92,7 +92,6 @@ impl FileSelector {
     }
 
     pub fn update_entries(&mut self) -> Result<()> {
-        return Ok(());
         let back = SelectorEntry {
             name: "../".into(),
             kind: SelectorEntryKind::Folder,

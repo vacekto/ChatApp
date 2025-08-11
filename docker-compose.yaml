@@ -2,16 +2,16 @@ services:
   server:
     restart: always
     build:
-      context: ./server
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: server/Dockerfile
     container_name: "chat_app"
     ports:
       - ${SERVER_PORT}:${SERVER_PORT}
 
     environment:
       SERVER_PORT: "${SERVER_PORT}"
+      SERVER_HOST: "${SERVER_HOST}"
       DB_URL: "mongodb://mongo:27017/chatapp"
-      TERM: "xterm-256color"
 
   mongo:
     image: mongo

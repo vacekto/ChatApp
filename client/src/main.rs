@@ -15,7 +15,7 @@ async fn main() -> Result<()> {
     let server_host = std::env::var("SERVER_HOST")?;
     let server_port = std::env::var("SERVER_PORT")?;
 
-    let server_addr = format!("ws://localhost:{}/server", server_port);
+    let server_addr = format!("ws://{}:{}/server", server_host, server_port);
 
     let (ws, _) = connect_async(server_addr).await.expect("Failed to connect");
     let (ws_write, ws_read) = ws.split();

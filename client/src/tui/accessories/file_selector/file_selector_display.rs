@@ -49,28 +49,28 @@ impl Widget for &mut FileSelector {
             THEME_YELLOW_LIGHT.2,
         ));
 
-        // let layout_name = Layout::default()
-        //     .direction(Direction::Vertical)
-        //     .vertical_margin(1)
-        //     .constraints(vec![Constraint::Fill(1), Constraint::Length(2)])
-        //     .split(rect_outer);
-
-        // let rect_content = layout_name[0];
-
         let layout_name = Layout::default()
             .direction(Direction::Vertical)
             .vertical_margin(1)
-            .constraints(vec![Constraint::Length(3), Constraint::Fill(1)])
+            .constraints(vec![Constraint::Fill(1), Constraint::Length(2)])
             .split(rect_outer);
 
-        let rect_warning = layout_name[0];
+        let rect_content = layout_name[0];
 
-        Paragraph::new("disabled in browser")
-            .style(Style::default().fg(Color::LightRed))
-            .centered()
-            .render(rect_warning.inner(Margin::new(1, 1)), buf);
+        // let layout_name = Layout::default()
+        //     .direction(Direction::Vertical)
+        //     .vertical_margin(1)
+        //     .constraints(vec![Constraint::Length(3), Constraint::Fill(1)])
+        //     .split(rect_outer);
 
-        let rect_content = layout_name[1];
+        // let rect_warning = layout_name[0];
+
+        // Paragraph::new("disabled in browser")
+        //     .style(Style::default().fg(Color::LightRed))
+        //     .centered()
+        //     .render(rect_warning.inner(Margin::new(1, 1)), buf);
+
+        // let rect_content = layout_name[1];
 
         let title = match &self.active_action {
             FileAction::ASCII => Span::styled(" Send ASCI image ", style_title),
@@ -132,10 +132,10 @@ impl Widget for &mut FileSelector {
             self.scroll_offset -= self.selected_index.abs_diff(self.scroll_offset as usize) as u16;
         }
 
-        // let scroll_offset: (u16, u16) = (self.scroll_offset, 0);
-        // Paragraph::new(files)
-        //     .block(block_selector)
-        //     .scroll(scroll_offset)
-        //     .render(rect_content.inner(Margin::new(1, 0)), buf);
+        let scroll_offset: (u16, u16) = (self.scroll_offset, 0);
+        Paragraph::new(files)
+            .block(block_selector)
+            .scroll(scroll_offset)
+            .render(rect_content.inner(Margin::new(1, 0)), buf);
     }
 }

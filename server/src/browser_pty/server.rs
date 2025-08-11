@@ -70,8 +70,6 @@ pub async fn handle_ws(ws: WebSocket) -> Result<(), HandlerError> {
     while let Some(Ok(msg)) = ws_rx.next().await {
         let data = if msg.is_binary() {
             msg.into_bytes().to_vec()
-        // } else if let Ok(text) = msg.to_str() {
-        //     text.as_bytes().to_vec()
         } else {
             continue;
         };
